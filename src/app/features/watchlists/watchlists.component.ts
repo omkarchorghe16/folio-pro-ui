@@ -1,10 +1,16 @@
 import { CommonModule } from '@angular/common';
 import { HttpErrorResponse, HttpEventType, HttpResponse } from '@angular/common/http';
 import { Component } from '@angular/core';
+import { Observable, catchError, forkJoin, map, of, switchMap } from 'rxjs';
 import { WatchlistGroup, WatchlistItem, WatchlistMarket, WatchlistMetricKey } from '../../core/models/wealth.models';
 import { FmpProfile, FmpProfilesService } from '../../core/services/fmp-profiles.service';
 import { WatchlistImportMarket, WatchlistImportService } from '../../core/services/watchlist-import.service';
 import { WatchlistPageResponse, WatchlistsService } from '../../core/services/watchlists.service';
+import {
+  WatchlistColumnPreferencesResponse,
+  WatchlistColumnPreferencesService,
+} from '../../core/services/watchlist-column-preferences.service';
+import { environment } from '../../../environments/environment';
 import { ShellComponent } from '../../shared/components/shell/shell.component';
 
 type WatchlistColumnKey = 'symbol' | 'name' | 'assetType' | 'price' | 'change' | 'trend' | 'sector' | 'score' | 'volume' | WatchlistMetricKey;
@@ -17,8 +23,10 @@ interface WatchlistColumn {
 
 const FAVORITE_WATCHLISTS_STORAGE_KEY = 'folio-pro.favorite-watchlists';
 const FAVORITE_SYMBOLS_STORAGE_KEY = 'folio-pro.favorite-symbols';
-const WATCHLIST_COLUMNS_STORAGE_KEY = 'folio-pro.watchlist-columns';
+const DEFAULT_COLUMN_KEYS: WatchlistColumnKey[] = ['symbol', 'name', 'assetType', 'price', 'change', 'trend'];
 const FAVORITES_LIST_ID = '__favorites__';
+/** Name of the USA watchlist shown first in the dropdown and preselected on load (matched case-insensitively). */
+const DEFAULT_US_WATCHLIST_NAME = 'TOP';
 const MAX_IMPORT_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 
 @Component({
@@ -51,10 +59,6 @@ const MAX_IMPORT_FILE_SIZE_BYTES = 5 * 1024 * 1024;
                 {{ isImporting ? 'Importing…' : 'Import CSV' }}
               </button>
               <button class="tool-button" type="button" (click)="exportCsv()">Export CSV</button>
-              <button class="tool-button" type="button" [disabled]="isLoadingProfiles || isLoadingWatchlists"
-                (click)="loadFmpProfiles()">
-                {{ isLoadingProfiles ? 'Loading profiles…' : 'Load FMP profiles' }}
-              </button>
               <button class="tool-button" type="button" [attr.aria-expanded]="columnsEditorOpen"
                 aria-controls="columns-editor" (click)="openColumnEditor()">Edit columns</button>
             </div>
@@ -108,7 +112,9 @@ const MAX_IMPORT_FILE_SIZE_BYTES = 5 * 1024 * 1024;
               <p class="modal-error" *ngIf="columnEditorMessage" role="status">{{ columnEditorMessage }}</p>
               <footer class="modal-actions">
                 <button type="button" class="tool-button" (click)="cancelColumnEditor()">Cancel</button>
-                <button type="button" class="save-button" (click)="saveColumnPreferences()">Save columns</button>
+                <button type="button" class="save-button" [disabled]="isSavingColumns" (click)="saveColumnPreferences()">
+                  {{ isSavingColumns ? 'Saving…' : 'Save columns' }}
+                </button>
               </footer>
             </section>
           </div>
@@ -136,6 +142,7 @@ const MAX_IMPORT_FILE_SIZE_BYTES = 5 * 1024 * 1024;
                       <span class="option-name">
                         <span class="favorite-star" *ngIf="isFavoriteWatchlist(watchlist)" aria-hidden="true">★</span>
                         {{ watchlist.name }}
+                        <span class="default-badge" *ngIf="isDefaultWatchlist(watchlist)">Default</span>
                       </span>
                     </button>
                     <button type="button" class="dropdown-favorite-button"
@@ -148,13 +155,6 @@ const MAX_IMPORT_FILE_SIZE_BYTES = 5 * 1024 * 1024;
                     aria-selected="false" [disabled]="isLoadingWatchlists" (click)="openAddWatchlistDialog()">
                     <span class="option-name"><span aria-hidden="true">＋</span> Add watchlist</span>
                   </button>
-                  <div class="watchlist-page-controls" *ngIf="watchlistTotalPages > 1" aria-label="Watchlist pages">
-                    <button type="button" (click)="previousWatchlistPage()"
-                      [disabled]="isLoadingWatchlists || watchlistPage === 0">Previous</button>
-                    <span>Page {{ watchlistPage + 1 }} of {{ watchlistTotalPages }}</span>
-                    <button type="button" (click)="nextWatchlistPage()"
-                      [disabled]="isLoadingWatchlists || watchlistPage + 1 >= watchlistTotalPages">Next</button>
-                  </div>
                 </div>
               </div>
             </div>
@@ -389,7 +389,8 @@ export class WatchlistsComponent {
     { key: 'delisted', label: 'Delisted', group: 'Profile' },
   ];
   readonly columnGroups = [...new Set(this.availableColumns.map((column) => column.group))];
-  visibleColumnKeys: WatchlistColumnKey[] = ['symbol', 'name', 'assetType', 'price', 'change', 'trend'];
+  /** Columns shown in the table, in order. Always taken from the user's saved preferences (or the defaults). */
+  visibleColumnKeys: WatchlistColumnKey[] = [...DEFAULT_COLUMN_KEYS];
   draftColumnKeys: WatchlistColumnKey[] = [];
   watchlists: WatchlistGroup[] = [];
   private favoriteWatchlistKeys = new Set<string>();
@@ -408,6 +409,9 @@ export class WatchlistsComponent {
   newWatchlistName = '';
   newWatchlistMessage = '';
   columnEditorMessage = '';
+  isSavingColumns = false;
+  /** Only the newest column-preferences request may update the table, so a slow older response cannot win. */
+  private columnPreferencesRequestId = 0;
   statusMessage = '';
   isImporting = false;
   isLoadingProfiles = false;
@@ -415,16 +419,17 @@ export class WatchlistsComponent {
   watchlistPage = 0;
   watchlistTotalPages = 0;
   private watchlistRequestId = 0;
-  private readonly watchlistPageSize = 15;
+  /** The backend caps page size at 100; the dropdown has no paging, so every page is fetched and merged. */
+  private readonly watchlistPageSize = 100;
   readonly favoritesListId = FAVORITES_LIST_ID;
 
   constructor(
     private readonly watchlistImportService: WatchlistImportService,
     private readonly watchlistsService: WatchlistsService,
     private readonly fmpProfilesService: FmpProfilesService,
+    private readonly columnPreferencesService: WatchlistColumnPreferencesService,
   ) {
     this.loadFavorites();
-    this.loadColumnPreferences();
     this.loadWatchlists(this.selectedMarket);
   }
 
@@ -520,12 +525,14 @@ export class WatchlistsComponent {
     this.currentPage = 1;
     this.watchlistDropdownOpen = false;
     this.statusMessage = '';
+    this.loadFmpProfiles();
   }
 
   selectFavoriteWatchlist(id: string): void {
     this.selectedWatchlistId = id;
     this.currentPage = 1;
     this.statusMessage = '';
+    this.loadFmpProfiles();
   }
 
   isFavoriteWatchlist(watchlist: WatchlistGroup): boolean {
@@ -542,6 +549,11 @@ export class WatchlistsComponent {
       this.statusMessage = `${watchlist.name} added to favorites.`;
     }
     this.persistFavorites();
+  }
+
+  isDefaultWatchlist(watchlist: WatchlistGroup): boolean {
+    return watchlist.market === 'US'
+      && watchlist.name.trim().toUpperCase() === DEFAULT_US_WATCHLIST_NAME;
   }
 
   openAddStocksDialog(): void {
@@ -773,11 +785,40 @@ export class WatchlistsComponent {
       this.columnEditorMessage = 'Select at least one column before saving.';
       return;
     }
-    this.visibleColumnKeys = [...this.draftColumnKeys];
-    localStorage.setItem(WATCHLIST_COLUMNS_STORAGE_KEY, JSON.stringify(this.visibleColumnKeys));
-    this.columnsEditorOpen = false;
+    const columnKeys = [...this.draftColumnKeys];
+    this.isSavingColumns = true;
     this.columnEditorMessage = '';
-    this.statusMessage = `${this.visibleColumnKeys.length} columns applied to the watchlist.`;
+    // Invalidate any preferences request still in flight; it would carry the old columns.
+    this.columnPreferencesRequestId++;
+    this.columnPreferencesService.savePreferences(environment.currentUserId, columnKeys).subscribe({
+      next: () => {
+        this.isSavingColumns = false;
+        this.columnsEditorOpen = false;
+        this.columnEditorMessage = '';
+        this.statusMessage = 'Columns saved. Refreshing the watchlist columns…';
+        this.refreshColumnsFromDatabase();
+      },
+      error: (error: unknown) => {
+        this.isSavingColumns = false;
+        console.error('[Watchlist columns] Failed to save column preferences', error);
+        // Keep the editor open so the user can retry; the table keeps showing what is in the database.
+        this.columnEditorMessage = error instanceof HttpErrorResponse && error.status !== 0
+          ? `Could not save columns (HTTP ${error.status}). Please try again.`
+          : 'Could not reach the preferences service. Check that the backend on port 8081 is running.';
+      },
+    });
+  }
+
+  /** Re-reads the saved columns from the database and redraws the table with exactly those columns. */
+  private refreshColumnsFromDatabase(): void {
+    const requestId = ++this.columnPreferencesRequestId;
+    this.fetchColumnPreferences().subscribe((columnKeys) => {
+      if (requestId !== this.columnPreferencesRequestId) {
+        return;
+      }
+      this.visibleColumnKeys = columnKeys;
+      this.statusMessage = `${columnKeys.length} columns saved and loaded from your profile.`;
+    });
   }
 
   cancelColumnEditor(): void {
@@ -873,42 +914,32 @@ export class WatchlistsComponent {
     this.currentPage = Math.min(this.totalPages, this.currentPage + 1);
   }
 
-  previousWatchlistPage(): void {
-    if (this.watchlistPage > 0) {
-      this.loadWatchlists(this.selectedMarket, this.watchlistPage - 1);
-    }
-  }
-
-  nextWatchlistPage(): void {
-    if (this.watchlistPage + 1 < this.watchlistTotalPages) {
-      this.loadWatchlists(this.selectedMarket, this.watchlistPage + 1);
-    }
-  }
-
-  loadFmpProfiles(): void {
-    if (this.selectedMarket !== 'US') {
-      this.statusMessage = 'FMP Basic profiles are available only for US-exchange symbols.';
+  /**
+   * Fetches FMP profiles for the selected US watchlist. Runs automatically whenever watchlists load or
+   * the selection changes; symbols that already have profile data are not requested again.
+   */
+  private loadFmpProfiles(): void {
+    if (this.selectedMarket !== 'US' || this.isLoadingWatchlists) {
       return;
     }
     const watchlist = this.selectedWatchlist;
     const symbols = [...new Set(watchlist.items
+      .filter((item) => !item.profileData)
       .map((item) => item.symbol.trim().toUpperCase())
       .filter((symbol) => symbol && !/(\.NS|\.BO)$/i.test(symbol)))];
     if (!symbols.length) {
-      this.statusMessage = 'The selected watchlist has no supported US symbols to look up.';
       return;
     }
 
     const selectedWatchlistId = this.selectedWatchlistId;
     const selectedMarket = this.selectedMarket;
     this.isLoadingProfiles = true;
-    this.statusMessage = `Loading FMP profiles for ${symbols.length} symbols…`;
     this.fmpProfilesService.getProfiles(symbols).subscribe({
       next: (result) => {
         try {
           const profiles = this.parseFmpProfiles(result);
           if (selectedMarket !== this.selectedMarket || selectedWatchlistId !== this.selectedWatchlistId) {
-            this.statusMessage = 'Profiles loaded, but the selected watchlist changed before the response arrived. Select the original watchlist and load profiles again.';
+            // The selection changed mid-request; the new selection triggers its own profile load.
             return;
           }
           const profilesBySymbol = new Map(profiles.map((profile) => [profile.symbol.trim().toUpperCase(), profile]));
@@ -932,20 +963,6 @@ export class WatchlistsComponent {
               }),
             }
             : list);
-          if (matchedItemCount > 0) {
-            const profileColumns: WatchlistColumnKey[] = [
-              'name', 'price', 'change', 'sector', 'volume', 'marketCap', 'changeAmount',
-              'currency', 'exchange', 'exchangeFullName', 'exchangeShortName', 'country', 'industry',
-              'description', 'updatedAt', 'profileId', 'cik', 'isin', 'cusip', 'website', 'beta',
-              'lastDividend', 'priceRange', 'range', 'image',
-              'averageVolume', 'ceo', 'fullTimeEmployees', 'phone', 'address', 'city', 'state',
-              'zip', 'ipoDate', 'activelyTrading', 'etf', 'fund', 'adr', 'delisted',
-            ];
-            this.visibleColumnKeys = [
-              ...this.visibleColumnKeys,
-              ...profileColumns.filter((key) => !this.visibleColumnKeys.includes(key)),
-            ];
-          }
           const returnedSymbols = new Set(profilesBySymbol.keys());
           const missingSymbols = symbols.filter((symbol) => !returnedSymbols.has(symbol));
           const displayedProfileFields = [
@@ -965,16 +982,12 @@ export class WatchlistsComponent {
             profileFieldsWithValues: displayedProfileFields,
             visibleColumns: this.visibleColumnKeys,
           });
-          this.statusMessage = `Received ${profiles.length} of ${symbols.length} requested profiles; updated ${matchedItemCount} matching watchlist rows.`
-            + (missingSymbols.length ? ` No profile returned for: ${missingSymbols.join(', ')}.` : '');
           if (profiles.length > 0 && matchedItemCount === 0) {
-            this.statusMessage += ' Returned profile symbols did not match items in the selected watchlist.';
             console.warn('[FMP Profiles] No returned profile symbols matched items in the selected watchlist.', {
               requestedSymbols: symbols,
               returnedSymbols: [...returnedSymbols],
             });
           } else if (matchedItemCount > 0 && displayedProfileFields.length === 0) {
-            this.statusMessage += ' Profiles matched symbols, but the response has no values for the supported display fields.';
             console.warn('[FMP Profiles] Profiles matched rows but supported display fields are empty.', {
               returnedSymbols: [...returnedSymbols],
             });
@@ -1249,10 +1262,18 @@ export class WatchlistsComponent {
       this.statusMessage = '';
     }
 
-    this.watchlistsService.getWatchlists(page, this.watchlistPageSize, market).subscribe({
-      next: (response) => {
+    // The table is drawn only after both arrive, so rows always appear with the saved columns and order.
+    const columnsRequestId = ++this.columnPreferencesRequestId;
+    forkJoin({
+      page: this.fetchAllWatchlistPages(page, market),
+      columnKeys: this.fetchColumnPreferences(),
+    }).subscribe({
+      next: ({ page: response, columnKeys }) => {
         if (requestId !== this.watchlistRequestId) {
           return;
+        }
+        if (columnsRequestId === this.columnPreferencesRequestId) {
+          this.visibleColumnKeys = columnKeys;
         }
         this.applyWatchlistPage(response, market);
       },
@@ -1273,6 +1294,25 @@ export class WatchlistsComponent {
     });
   }
 
+  /** Fetches `firstPage`, then any later pages, and merges them into one response. */
+  private fetchAllWatchlistPages(firstPage: number, market: WatchlistMarket): Observable<WatchlistPageResponse> {
+    return this.watchlistsService.getWatchlists(firstPage, this.watchlistPageSize, market).pipe(
+      switchMap((first) => {
+        const remainingPages = Array.from(
+          { length: Math.max(0, first.totalPages - first.page - 1) },
+          (_, index) => first.page + index + 1,
+        );
+        if (!remainingPages.length) {
+          return of(first);
+        }
+        return forkJoin(remainingPages.map((pageNumber) =>
+          this.watchlistsService.getWatchlists(pageNumber, this.watchlistPageSize, market))).pipe(
+          map((rest) => ({ ...first, content: [...first.content, ...rest.flatMap((response) => response.content)] })),
+        );
+      }),
+    );
+  }
+
   private applyWatchlistPage(response: WatchlistPageResponse, market: WatchlistMarket): void {
     const watchlists: WatchlistGroup[] = response.content.map((watchlist) => ({
       id: String(watchlist.id),
@@ -1290,12 +1330,22 @@ export class WatchlistsComponent {
       ...this.favoriteSymbolsByMarket[market],
       ...apiFavoriteSymbols,
     ]);
-    this.watchlists = watchlists;
+    // For USA, the hardcoded default (TOP) is moved to the top and preselected. If it does not exist,
+    // the first watchlist is selected.
+    this.watchlists = market === 'US' ? this.withDefaultFirst(watchlists) : watchlists;
     this.watchlistPage = response.page;
     this.watchlistTotalPages = response.totalPages;
-    this.selectedWatchlistId = watchlists[0]?.id ?? '';
+    this.selectedWatchlistId = this.watchlists[0]?.id ?? '';
     this.isLoadingWatchlists = false;
     this.currentPage = 1;
+    this.loadFmpProfiles();
+  }
+
+  private withDefaultFirst(watchlists: WatchlistGroup[]): WatchlistGroup[] {
+    const defaultWatchlist = watchlists.find((watchlist) => this.isDefaultWatchlist(watchlist));
+    return defaultWatchlist
+      ? [defaultWatchlist, ...watchlists.filter((watchlist) => watchlist !== defaultWatchlist)]
+      : watchlists;
   }
 
   private watchlistKey(watchlist: WatchlistGroup): string {
@@ -1312,13 +1362,36 @@ export class WatchlistsComponent {
     };
   }
 
-  private loadColumnPreferences(): void {
-    const storedColumns = this.readStoredStringArray(WATCHLIST_COLUMNS_STORAGE_KEY);
-    const validKeys = new Set(this.availableColumns.map((column) => column.key));
-    const validStoredColumns = storedColumns.filter((key): key is WatchlistColumnKey => validKeys.has(key as WatchlistColumnKey));
-    if (validStoredColumns.length) {
-      this.visibleColumnKeys = validStoredColumns;
-    }
+  /**
+   * Fetches the user's saved columns (sorted by displayOrder). Never errors: a 404 means the user has
+   * not saved any yet, and any other failure is logged; both fall back to the default columns.
+   */
+  private fetchColumnPreferences(): Observable<WatchlistColumnKey[]> {
+    return this.columnPreferencesService.getPreferences(environment.currentUserId).pipe(
+      map((response) => {
+        const savedColumns = this.columnKeysFromResponse(response);
+        return savedColumns.length ? savedColumns : [...DEFAULT_COLUMN_KEYS];
+      }),
+      catchError((error: unknown) => {
+        if (!(error instanceof HttpErrorResponse && error.status === 404)) {
+          console.error('[Watchlist columns] Failed to load column preferences; showing default columns', error);
+        }
+        return of([...DEFAULT_COLUMN_KEYS]);
+      }),
+    );
+  }
+
+  /** Sorts by displayOrder and drops keys this UI no longer knows about. */
+  private columnKeysFromResponse(response: WatchlistColumnPreferencesResponse | null): WatchlistColumnKey[] {
+    const columns = Array.isArray(response?.columns) ? response.columns : [];
+    return this.validColumnKeys([...columns]
+      .sort((first, second) => first.displayOrder - second.displayOrder)
+      .map((column) => column.columnKey));
+  }
+
+  private validColumnKeys(keys: string[]): WatchlistColumnKey[] {
+    const validKeys = new Set<string>(this.availableColumns.map((column) => column.key));
+    return [...new Set(keys)].filter((key): key is WatchlistColumnKey => validKeys.has(key));
   }
 
   private readStoredStringArray(key: string): string[] {

@@ -54,9 +54,6 @@
   .dropdown-chevron { color:var(--muted); }
   .watchlist-menu { position:absolute; top:calc(100% + 5px); left:0; z-index:12; width:100%; max-height:310px; overflow:auto; padding:5px; border:1px solid var(--border); border-radius:7px; background:var(--panel); box-shadow:0 12px 30px #0008; }
   .watchlist-loading { margin:8px 9px; color:var(--muted); font-size:.74rem; }
-  .watchlist-page-controls { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 4px 3px; border-top:1px solid var(--border); color:var(--muted); font-size:.68rem; }
-  .watchlist-page-controls button { padding:5px 7px; border:1px solid var(--border); border-radius:5px; background:var(--panel-raised); color:var(--text); font-size:.68rem; }
-  .watchlist-page-controls button:disabled { cursor:not-allowed; opacity:.45; }
   .watchlist-option-row { display:flex; align-items:center; gap:4px; }
   .watchlist-option { display:flex; flex:1; align-items:center; min-width:0; min-height:36px; padding:0 9px; border:0; border-radius:5px; background:transparent; color:var(--text); text-align:left; font-size:.76rem; }
   .watchlist-option:hover,.watchlist-option.active { background:#ffffff0b; }
@@ -64,6 +61,7 @@
   .favorite-star,.dropdown-favorite-button.is-favorite,.favorite-chip span { color:var(--accent); }
   .dropdown-favorite-button { flex:0 0 34px; min-height:34px; border:0; border-radius:5px; background:transparent; color:var(--muted); font-size:1.05rem; }
   .dropdown-favorite-button:hover { background:#ffffff0b; }
+  .default-badge { flex:0 0 auto; padding:1px 6px; border:1px solid #4b8cff66; border-radius:4px; background:#4b8cff20; color:#b5ceff; font-size:.62rem; font-weight:600; letter-spacing:.02em; }
   .dropdown-favorite-button:focus-visible,.watchlist-option:focus-visible,.watchlist-select-button:focus-visible,button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
   .star-symbol-button { border:0; background:transparent; color:var(--muted); font-size:1.2rem; }
   .star-symbol-button.is-favorite { color:var(--accent); }
