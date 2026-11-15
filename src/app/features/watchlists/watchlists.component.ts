@@ -79,7 +79,7 @@ const PERCENT_COLUMNS = new Set<string>([
             <h1>{{ selectedMarket === 'US' ? 'US Watchlist' : 'India Watchlist' }}</h1>
             <p>Monitor {{ selectedMarket === 'US' ? 'US' : 'India' }} assets in your watchlists.</p>
           </div>
-          <span class="sample-note">Prices and market metrics are not provided by the watchlist service.</span>
+          <span class="sample-note">{{ selectedMarket === 'US' ? 'Market data from FMP.' : 'Market data from Tapetide.' }} Informational only, not investment advice.</span>
         </div>
 
         <section class="card watchlist-panel">
@@ -504,8 +504,6 @@ export class WatchlistsComponent implements OnDestroy {
   isImporting = false;
   isLoadingProfiles = false;
   isLoadingWatchlists = false;
-  watchlistPage = 0;
-  watchlistTotalPages = 0;
   private watchlistRequestId = 0;
   /** The backend caps page size at 100; the dropdown has no paging, so every page is fetched and merged. */
   private readonly watchlistPageSize = 100;
@@ -551,10 +549,6 @@ export class WatchlistsComponent implements OnDestroy {
 
   get favoriteWatchlists(): WatchlistGroup[] {
     return this.watchlists.filter((watchlist) => this.isFavoriteWatchlist(watchlist));
-  }
-
-  get otherWatchlists(): WatchlistGroup[] {
-    return this.watchlists.filter((watchlist) => !this.isFavoriteWatchlist(watchlist));
   }
 
   get hasFavoriteSymbols(): boolean {
@@ -1693,7 +1687,7 @@ export class WatchlistsComponent implements OnDestroy {
           } else {
             const names = response.watchlistNames.length ? ` Watchlists: ${response.watchlistNames.join(', ')}.` : '';
             this.statusMessage = `Imported ${response.watchlistsCreated} watchlists and ${response.itemsCreated} symbols into ${market}.${names}`;
-            this.loadWatchlists(this.selectedMarket, this.watchlistPage, true);
+            this.loadWatchlists(this.selectedMarket, true);
           }
           this.isImporting = false;
           input.value = '';
@@ -1747,13 +1741,12 @@ export class WatchlistsComponent implements OnDestroy {
     return `Unable to import this CSV file (HTTP ${error.status}).`;
   }
 
-  private loadWatchlists(market: WatchlistMarket, page = 0, preserveStatusMessage = false): void {
+  /** Loads every watchlist of the market (all API pages) together with the saved table columns. */
+  private loadWatchlists(market: WatchlistMarket, preserveStatusMessage = false): void {
     const requestId = ++this.watchlistRequestId;
     this.isLoadingWatchlists = true;
-    this.watchlistPage = page;
     this.watchlists = [];
     this.selectedWatchlistId = '';
-    this.watchlistTotalPages = 0;
     this.currentPage = 1;
     if (!preserveStatusMessage) {
       this.statusMessage = '';
@@ -1762,7 +1755,7 @@ export class WatchlistsComponent implements OnDestroy {
     // The table is drawn only after both arrive, so rows always appear with the saved columns and order.
     const columnsRequestId = ++this.columnPreferencesRequestId;
     forkJoin({
-      page: this.fetchAllWatchlistPages(page, market),
+      page: this.fetchAllWatchlistPages(0, market),
       columnKeys: this.fetchColumnPreferences(),
     }).subscribe({
       next: ({ page: response, columnKeys }) => {
@@ -1830,8 +1823,6 @@ export class WatchlistsComponent implements OnDestroy {
     ]);
     // Keep the server's order (favorites first, then the rest).
     this.watchlists = watchlists;
-    this.watchlistPage = response.page;
-    this.watchlistTotalPages = response.totalPages;
     // USA preselects the hardcoded default (TOP) wherever it sits in the list; otherwise the first watchlist.
     const defaultWatchlist = market === 'US'
       ? this.watchlists.find((watchlist) => this.isDefaultWatchlist(watchlist))
@@ -1888,22 +1879,6 @@ export class WatchlistsComponent implements OnDestroy {
   private validColumnKeys(keys: string[]): WatchlistColumnKey[] {
     const validKeys = new Set<string>(this.availableColumns.map((column) => column.key));
     return [...new Set(keys)].filter((key): key is WatchlistColumnKey => validKeys.has(key));
-  }
-
-  private readStoredStringArray(key: string): string[] {
-    const value = localStorage.getItem(key);
-    if (!value) {
-      return [];
-    }
-    try {
-      const parsed: unknown = JSON.parse(value);
-      return Array.isArray(parsed) && parsed.every((entry) => typeof entry === 'string') ? parsed : [];
-    } catch (error) {
-      if (error instanceof SyntaxError) {
-        return [];
-      }
-      throw error;
-    }
   }
 
   private readStoredRecord(key: string): Partial<Record<WatchlistMarket, string[]>> {

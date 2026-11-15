@@ -1,8 +1,30 @@
 # WealthPilot — Application Architecture and Implementation Plan
 
-> **Status:** Initial architecture baseline (implementation decisions remain open where noted)  
+> **Status:** Architecture baseline plus a record of what is built (updated 2026-11-15). Sections 1–9 are the target plan; section 0 describes the current implementation, which differs from the plan in places.  
 > **Scope:** Angular personal wealth-management application with a Java service and relational database.  
 > **Principle:** Begin as a modular monolith. Keep domain boundaries explicit; split services only when scale or team ownership justifies it.
+
+## 0. What is built today
+
+Only the watchlist feature is connected to backends. Other screens use mock data.
+
+```mermaid
+flowchart LR
+    Browser[Angular UI :4200\n/watchlists/us · /watchlists/india] -->|/api/v1/* direct, CORS| Inv[invesment-management-svc :8081\nwatchlists · favorites · CSV import · column prefs]
+    Browser -->|/api/fmp, /api/india via ng serve proxy| News[news-scheduler-svc :8082\nFMP · Tapetide · Upstox · news digests]
+    Inv -->|Flyway-managed tables| DB[(PostgreSQL folio_pro)]
+    News -->|Hibernate ddl-auto tables, cached provider JSON| DB
+    News -->|HTTPS, keys server-side| Providers[FMP · Tapetide · Upstox · Finnhub · NewsAPI · Alpha Vantage]
+```
+
+| Area | Plan (sections below) | Built |
+|---|---|---|
+| Backend shape | One Java modular monolith | Two Spring Boot services sharing one database: `invesment-management-svc` (watchlists, portfolios) and `news-scheduler-svc` (market data, news digests) |
+| Watchlist schema | `watchlist` + `watchlist_item` referencing `instrument`, UUID keys | Split by market: `watchlists_usa` / `watchlists_india` and `watchlist_items_usa` / `watchlist_items_india`; numeric IDs from one shared sequence; `user_id` and `is_favorite` on both watchlist tables; items store symbol and name only (no instrument table) |
+| User preferences | — | `watchlist_column_preferences` (columns and order per user), shared by both watchlist pages |
+| Market data | Provider adapter inside the monolith, values carry source/asOf | `news-scheduler-svc` caches FMP profiles (US) and Tapetide datasets (India) in PostgreSQL; the UI fetches them per symbol and maps them to table columns. Market cap is not stored with watchlist items, so sorting by it happens in the UI |
+| Identity | Authentication before personal data | None. Every call uses user `1` (`environment.currentUserId`); services are development-only |
+| Watchlist ordering | — | API lists favorites first, then by ID; the UI sorts stocks by market cap (largest first) by default |
 
 ## 1. Goals and guardrails
 
@@ -243,3 +265,9 @@ Until these are decided, label relevant functionality as prototype/sample and av
 | 2026-11-08 | Start with an Angular SPA and Java modular monolith, backed by PostgreSQL; keep provider integration behind an adapter. | Baseline proposal; validate with project owner |
 | 2026-11-08 | Ledger transactions are the source of truth; holdings are derived. | Baseline proposal; calculation policies still open |
 | 2026-11-08 | Initial scope excludes order execution and brokerage custody. | Baseline proposal |
+| 2026-11-14 | Watchlists stored in separate USA and India tables; `user_id` hardcoded to 1 until authentication exists. | Implemented (invesment-management-svc V2–V6) |
+| 2026-11-14 | US and India watchlists are separate routes (`/watchlists/us`, `/watchlists/india`) sharing one component. | Implemented |
+| 2026-11-14 | Market data comes from `news-scheduler-svc` (FMP for US, Tapetide for India), reached through the Angular dev proxy. | Implemented; production routing still open |
+| 2026-11-15 | Favorite watchlists persisted in `is_favorite` and listed first by the API. | Implemented (V7) |
+| 2026-11-15 | Legacy `/api/v1/preferences` and `user_preferences` removed in favour of column preferences and `is_favorite`. | Implemented (V8) |
+| 2026-11-15 | Default market-cap sort done in the UI, not the API, because the watchlist service has no market data. | Implemented; backend sort available as a best-effort option |
