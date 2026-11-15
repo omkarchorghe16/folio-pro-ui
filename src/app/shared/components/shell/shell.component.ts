@@ -15,14 +15,15 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
           <a routerLink="/stocks" routerLinkActive="active">Stock screener</a>
           <a routerLink="/ipo" routerLinkActive="active">IPO</a>
           <a routerLink="/crypto" routerLinkActive="active">Crypto</a>
-          <a routerLink="/watchlists" routerLinkActive="active">Watchlists</a>
+          <a routerLink="/watchlists/us" routerLinkActive="active">US Watchlist</a>
+          <a routerLink="/watchlists/india" routerLinkActive="active">India Watchlist</a>
         </nav>
         <div class="header-tools"><label class="search"><span>⌕</span><input aria-label="Search stocks" placeholder="Search a company, sector or brand"></label><button class="icon-btn" aria-label="Notifications">♧</button><a class="avatar" routerLink="/profile" aria-label="Profile">A</a></div>
       </header>
       <div class="workspace" [class.workspace-wide-rail]="wideRail">
         <main class="main-panel"><ng-content></ng-content></main>
         <aside class="tool-rail" aria-label="Tracking tools">
-          <a routerLink="/dashboard">⌂<small>Ideas</small></a><a routerLink="/watchlists">☆<small>Watchlist</small></a><a routerLink="/portfolio">◷<small>Portfolio</small></a><a routerLink="/stocks">☷<small>Screener</small></a><a routerLink="/settings">⚙<small>Settings</small></a>
+          <a routerLink="/dashboard">⌂<small>Ideas</small></a><a routerLink="/watchlists/us">☆<small>US List</small></a><a routerLink="/watchlists/india">☆<small>India List</small></a><a routerLink="/portfolio">◷<small>Portfolio</small></a><a routerLink="/stocks">☷<small>Screener</small></a><a routerLink="/settings">⚙<small>Settings</small></a>
         </aside>
       </div>
     </div>

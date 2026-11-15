@@ -1,6 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { HttpErrorResponse, HttpEventType, HttpResponse } from '@angular/common/http';
 import { Component } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 import { Observable, catchError, forkJoin, map, of, switchMap } from 'rxjs';
 import { WatchlistGroup, WatchlistItem, WatchlistMarket, WatchlistMetricKey } from '../../core/models/wealth.models';
 import { FmpProfile, FmpProfilesService } from '../../core/services/fmp-profiles.service';
@@ -38,20 +39,14 @@ const MAX_IMPORT_FILE_SIZE_BYTES = 5 * 1024 * 1024;
       <div class="page-shell watchlists-page">
         <div class="page-header">
           <div>
-            <h1>Watchlists</h1>
-            <p>Monitor US and India assets from one page using the same watchlist workflow.</p>
+            <h1>{{ selectedMarket === 'US' ? 'US Watchlist' : 'India Watchlist' }}</h1>
+            <p>Monitor {{ selectedMarket === 'US' ? 'US' : 'India' }} assets in your watchlists.</p>
           </div>
           <span class="sample-note">Prices and market metrics are not provided by the watchlist service.</span>
         </div>
 
         <section class="card watchlist-panel">
           <div class="toolbar">
-            <div class="market-control" role="group" aria-label="Select watchlist market">
-              <button type="button" [class.selected]="selectedMarket === 'US'"
-                [attr.aria-pressed]="selectedMarket === 'US'" (click)="selectMarket('US')">USA watchlists</button>
-              <button type="button" [class.selected]="selectedMarket === 'India'"
-                [attr.aria-pressed]="selectedMarket === 'India'" (click)="selectMarket('India')">India watchlists</button>
-            </div>
             <div class="actions">
               <input #fileInput class="file-input" type="file" accept=".csv,text/csv"
                 aria-label="Choose watchlist CSV to import" [disabled]="isImporting" (change)="importCsv($event)">
@@ -435,12 +430,15 @@ export class WatchlistsComponent {
   readonly favoritesListId = FAVORITES_LIST_ID;
 
   constructor(
+    route: ActivatedRoute,
     private readonly watchlistImportService: WatchlistImportService,
     private readonly watchlistsService: WatchlistsService,
     private readonly fmpProfilesService: FmpProfilesService,
     private readonly columnPreferencesService: WatchlistColumnPreferencesService,
   ) {
     this.loadFavorites();
+    // Each route (/watchlists/us, /watchlists/india) fixes the market for its page.
+    this.selectedMarket = route.snapshot.data['market'] === 'India' ? 'India' : 'US';
     this.loadWatchlists(this.selectedMarket);
   }
 
@@ -607,15 +605,6 @@ export class WatchlistsComponent {
         return matches && unique && !alreadyAdded;
       })
       .slice(0, 6);
-  }
-
-  selectMarket(market: WatchlistMarket): void {
-    if (market !== this.selectedMarket) {
-      this.selectedMarket = market;
-      this.watchlistPage = 0;
-      this.loadWatchlists(market, 0);
-      this.statusMessage = '';
-    }
   }
 
   selectWatchlist(id: string): void {
@@ -1274,7 +1263,7 @@ export class WatchlistsComponent {
     const market: WatchlistImportMarket = this.selectedMarket === 'US' ? 'USA' : 'India';
     this.isImporting = true;
     this.statusMessage = `Uploading ${file.name} to ${market} watchlists…`;
-    this.watchlistImportService.importWatchlists(file, market).subscribe({
+    this.watchlistImportService.importWatchlists(file, market, environment.currentUserId).subscribe({
       next: (event) => {
         if (event.type === HttpEventType.UploadProgress) {
           const percent = event.total ? Math.round((event.loaded / event.total) * 100) : undefined;

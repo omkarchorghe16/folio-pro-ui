@@ -8,7 +8,7 @@
   .watchlist-panel { padding:20px; }
   .sample-note { color:var(--muted); font-size:.75rem; }
   .toolbar,.actions,.market-control,.list-controls,.pagination,.pagination-actions { display:flex; align-items:center; }
-  .toolbar { justify-content:space-between; gap:16px; margin-bottom:18px; }
+  .toolbar { justify-content:flex-end; gap:16px; margin-bottom:18px; }
   .market-control { gap:4px; padding:4px; border:1px solid var(--border); border-radius:8px; background:var(--panel-raised); }
   .market-control button,.tool-button { padding:9px 12px; border:1px solid transparent; border-radius:6px; background:transparent; color:var(--muted); font-size:.76rem; white-space:nowrap; }
   .market-control button.selected { background:#4b8cff24; color:#9dc0ff; }

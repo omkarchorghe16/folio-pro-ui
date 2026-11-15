@@ -35,11 +35,11 @@ export class WatchlistImportService {
 
   constructor(private readonly http: HttpClient) {}
 
-  importWatchlists(file: File, market: WatchlistImportMarket): Observable<HttpEvent<WatchlistImportResponse>> {
+  importWatchlists(file: File, market: WatchlistImportMarket, userId: number): Observable<HttpEvent<WatchlistImportResponse>> {
     const formData = new FormData();
     formData.append('file', file, file.name);
 
-    const params = new HttpParams().set('market', market);
+    const params = new HttpParams().set('market', market).set('userId', userId);
     const requestUrl = `${this.importUrl}?${params.toString()}`;
     console.info('[Watchlist CSV Import] Starting request', {
       method: 'POST',
@@ -48,6 +48,7 @@ export class WatchlistImportService {
       fileSizeBytes: file.size,
       fileType: file.type || 'unknown',
       market,
+      userId,
     });
 
     return this.http.post<WatchlistImportResponse>(this.importUrl, formData, {
