@@ -262,7 +262,15 @@ const MAX_IMPORT_FILE_SIZE_BYTES = 5 * 1024 * 1024;
           <div class="table-wrap">
             <table>
               <thead>
-                <tr><th *ngFor="let column of visibleColumns">{{ column.label }}</th></tr>
+                <tr>
+                  <th *ngFor="let column of visibleColumns" [attr.aria-sort]="ariaSort(column.key)">
+                    <button type="button" class="sort-header-button" [class.is-sorted]="sortColumnKey === column.key"
+                      [title]="'Sort by ' + column.label" (click)="toggleSort(column.key)">
+                      {{ column.label }}
+                      <span class="sort-indicator" aria-hidden="true">{{ sortIndicator(column.key) }}</span>
+                    </button>
+                  </th>
+                </tr>
               </thead>
               <tbody>
                 <tr *ngFor="let item of paginatedItems">
@@ -277,8 +285,9 @@ const MAX_IMPORT_FILE_SIZE_BYTES = 5 * 1024 * 1024;
                     </span>
                     <span *ngSwitchCase="'price'">{{ item.price === undefined ? '—' : (item.price | currency:selectedWatchlist.currency:'symbol':'1.2-2') }}</span>
                     <span *ngSwitchCase="'change'" [ngClass]="item.change === undefined ? '' : item.change >= 0 ? 'text-success' : 'text-danger'">
-                      {{ item.change === undefined ? '—' : (item.change > 0 ? '+' : '') + item.change + '%' }}
+                      {{ item.change === undefined ? '—' : (item.change > 0 ? '+' : '') + (item.change | number:'1.2-2') + '%' }}
                     </span>
+                    <span *ngSwitchCase="'marketCap'">{{ formatMarketCap(getColumnValue(item, column.key)) }}</span>
                     <span *ngSwitchCase="'trend'" class="badge"
                       [ngClass]="item.trend === 'Bullish' ? 'up' : item.trend === 'Bearish' ? 'down' : 'neutral'">{{ item.trend ?? '—' }}</span>
                     <button *ngSwitchCase="'description'" type="button" class="description-view-button"
@@ -410,6 +419,8 @@ export class WatchlistsComponent {
   newWatchlistMessage = '';
   columnEditorMessage = '';
   isSavingColumns = false;
+  sortColumnKey: WatchlistColumnKey | null = null;
+  sortDirection: 'asc' | 'desc' = 'asc';
   /** Only the newest column-preferences request may update the table, so a slow older response cannot win. */
   private columnPreferencesRequestId = 0;
   statusMessage = '';
@@ -492,7 +503,94 @@ export class WatchlistsComponent {
   }
 
   get paginatedItems(): WatchlistItem[] {
-    return this.selectedWatchlist.items.slice(this.startIndex, this.endIndex);
+    return this.sortedItems.slice(this.startIndex, this.endIndex);
+  }
+
+  /** The selected watchlist's items in the current sort order (sorting covers every page, not just the visible one). */
+  get sortedItems(): WatchlistItem[] {
+    const items = this.selectedWatchlist.items;
+    const key = this.sortColumnKey;
+    if (!key) {
+      return items;
+    }
+    const direction = this.sortDirection === 'asc' ? 1 : -1;
+    return items
+      .map((item, index) => ({ item, index, value: this.sortValue(item, key) }))
+      .sort((first, second) => {
+        // Empty values always go last, whichever direction is chosen.
+        if (first.value === null || second.value === null) {
+          return first.value === second.value ? first.index - second.index : first.value === null ? 1 : -1;
+        }
+        const result = typeof first.value === 'number' && typeof second.value === 'number'
+          ? first.value - second.value
+          : String(first.value).localeCompare(String(second.value), undefined, { numeric: true, sensitivity: 'base' });
+        return result * direction || first.index - second.index;
+      })
+      .map(({ item }) => item);
+  }
+
+  /** Header click cycles: ascending → descending → unsorted. */
+  toggleSort(key: WatchlistColumnKey): void {
+    if (this.sortColumnKey !== key) {
+      this.sortColumnKey = key;
+      this.sortDirection = 'asc';
+    } else if (this.sortDirection === 'asc') {
+      this.sortDirection = 'desc';
+    } else {
+      this.sortColumnKey = null;
+    }
+    this.currentPage = 1;
+  }
+
+  sortIndicator(key: WatchlistColumnKey): string {
+    if (this.sortColumnKey !== key) {
+      return '↕';
+    }
+    return this.sortDirection === 'asc' ? '▲' : '▼';
+  }
+
+  ariaSort(key: WatchlistColumnKey): 'ascending' | 'descending' | 'none' {
+    if (this.sortColumnKey !== key) {
+      return 'none';
+    }
+    return this.sortDirection === 'asc' ? 'ascending' : 'descending';
+  }
+
+  /** Formats a raw market cap as e.g. $3.25T, $812.40B, $45.10M. Non-numeric values are shown as-is. */
+  formatMarketCap(value: string | number): string {
+    const amount = this.toSortableNumber(value);
+    if (amount === null) {
+      return String(value);
+    }
+    const symbol = this.selectedWatchlist.currency === 'INR' ? '₹' : '$';
+    const sign = amount < 0 ? '-' : '';
+    const absolute = Math.abs(amount);
+    const units: [number, string][] = [[1e12, 'T'], [1e9, 'B'], [1e6, 'M'], [1e3, 'K']];
+    const unit = units.find(([threshold]) => absolute >= threshold);
+    return unit
+      ? `${sign}${symbol}${(absolute / unit[0]).toFixed(2)}${unit[1]}`
+      : `${sign}${symbol}${absolute.toFixed(2)}`;
+  }
+
+  private sortValue(item: WatchlistItem, key: WatchlistColumnKey): number | string | null {
+    const raw = this.getColumnValue(item, key);
+    if (raw === '—' || raw === '' || raw === null || raw === undefined) {
+      return null;
+    }
+    return this.toSortableNumber(raw) ?? String(raw).trim().toLowerCase();
+  }
+
+  /** Reads numbers, including strings such as "1,234.5", "$12", "3.4%". Returns null for anything else. */
+  private toSortableNumber(value: string | number): number | null {
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? value : null;
+    }
+    const cleaned = value.trim().replace(/[,$₹%\s]/g, '');
+    if (!/^[-+]?\d*\.?\d+(e[-+]?\d+)?$/i.test(cleaned)) {
+      return null;
+    }
+    const parsed = Number(cleaned);
+    return Number.isFinite(parsed) ? parsed : null;
   }
 
   get stockSuggestions(): WatchlistItem[] {

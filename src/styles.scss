@@ -117,3 +117,8 @@
     .pagination-actions { justify-content:space-between; }
   }
 }
+
+.sort-header-button { display:inline-flex; align-items:center; gap:5px; padding:0; border:0; background:transparent; color:inherit; font:inherit; letter-spacing:inherit; text-transform:inherit; white-space:nowrap; cursor:pointer; }
+.sort-header-button:hover, .sort-header-button.is-sorted { color:var(--text); }
+.sort-indicator { font-size:.7rem; opacity:.45; }
+.sort-header-button.is-sorted .sort-indicator { opacity:1; color:var(--accent); }
