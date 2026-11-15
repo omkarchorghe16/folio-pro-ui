@@ -29,6 +29,23 @@ const FAVORITES_LIST_ID = '__favorites__';
 /** Name of the USA watchlist shown first in the dropdown and preselected on load (matched case-insensitively). */
 const DEFAULT_US_WATCHLIST_NAME = 'TOP';
 const MAX_IMPORT_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+/** External research links shown next to "View" in the description column; {symbol} is the row's ticker. */
+interface ResearchSite {
+  label: string;
+  name: string;
+  urlTemplate: string;
+}
+const INDIA_RESEARCH_SITES: readonly ResearchSite[] = [
+  { label: 'TV', name: 'TradingView', urlTemplate: 'https://in.tradingview.com/symbols/NSE-{symbol}/' },
+  { label: 'SC', name: 'Screener', urlTemplate: 'https://www.screener.in/company/{symbol}/consolidated/' },
+  { label: 'FIN', name: 'Finology', urlTemplate: 'https://ticker.finology.in/company/{symbol}' },
+];
+const US_RESEARCH_SITES: readonly ResearchSite[] = [
+  { label: 'Yahoo', name: 'Yahoo Finance', urlTemplate: 'https://finance.yahoo.com/quote/{symbol}/' },
+  { label: 'TV', name: 'TradingView', urlTemplate: 'https://www.tradingview.com/symbols/NASDAQ-{symbol}/' },
+  { label: 'Finviz', name: 'Finviz', urlTemplate: 'https://finviz.com/stock?t={symbol}&p=d' },
+  { label: 'GoogleFin', name: 'Google Finance', urlTemplate: 'https://www.google.com/finance/beta/quote/{symbol}:NASDAQ' },
+];
 /** Parallel Tapetide profile requests for the India page. */
 const INDIA_PROFILE_CONCURRENCY = 4;
 /** Tapetide reports money in ₹ crore; 1 crore = 10,000,000 rupees. */
@@ -298,10 +315,16 @@ const PERCENT_COLUMNS = new Set<string>([
                     <span *ngSwitchCase="'marketCap'">{{ formatMarketCap(getColumnValue(item, column.key)) }}</span>
                     <span *ngSwitchCase="'trend'" class="badge"
                       [ngClass]="item.trend === 'Bullish' ? 'up' : item.trend === 'Bearish' ? 'down' : 'neutral'">{{ item.trend ?? '—' }}</span>
-                    <button *ngSwitchCase="'description'" type="button" class="description-view-button"
-                      [disabled]="!item.profileData?.['description']"
-                      [attr.aria-label]="'View description for ' + item.name"
-                      (click)="openDescriptionDialog(item)">View</button>
+                    <span *ngSwitchCase="'description'" class="description-actions">
+                      <button type="button" class="description-view-button"
+                        [disabled]="!item.profileData?.['description']"
+                        [attr.aria-label]="'View description for ' + item.name"
+                        (click)="openDescriptionDialog(item)">View</button>
+                      <a *ngFor="let site of researchSites" class="description-view-button research-link"
+                        [href]="researchUrl(site, item)" target="_blank" rel="noopener noreferrer"
+                        [title]="'Open ' + item.symbol + ' on ' + site.name"
+                        [attr.aria-label]="'Open ' + item.symbol + ' on ' + site.name + ' in a new tab'">{{ site.label }}</a>
+                    </span>
                     <span *ngSwitchDefault>{{ formatCell(item, column.key) }}</span>
                   </td>
                 </tr>
@@ -1257,12 +1280,15 @@ export class WatchlistsComponent implements OnDestroy {
     symbols.forEach((symbol) => this.indiaProfilesRequested.add(symbol));
     this.isLoadingProfiles = true;
     this.indiaProfilesInFlight += symbols.length;
+    let remaining = symbols.length;
+    const failures: { symbol: string; error: unknown }[] = [];
 
     this.indiaProfileSubscriptions.add(from(symbols).pipe(
       mergeMap((symbol) => this.tapetideProfileService.getProfile(symbol).pipe(
         map((response) => ({ symbol, payload: response?.payload ?? null })),
         catchError((error: unknown) => {
           console.error(`[Tapetide] Failed to load India profile for ${symbol}`, error);
+          failures.push({ symbol, error });
           // Allow a retry the next time this watchlist is opened.
           this.indiaProfilesRequested.delete(symbol);
           return of({ symbol, payload: null });
@@ -1271,6 +1297,9 @@ export class WatchlistsComponent implements OnDestroy {
     ).subscribe(({ symbol, payload }) => {
       this.indiaProfilesInFlight--;
       this.isLoadingProfiles = this.indiaProfilesInFlight > 0;
+      if (--remaining === 0 && failures.length) {
+        this.statusMessage = this.indiaProfileErrorMessage(failures, symbols.length);
+      }
       if (!payload?.data) {
         if (payload) {
           console.warn(`[Tapetide] No profile data returned for ${symbol}`);
@@ -1284,6 +1313,40 @@ export class WatchlistsComponent implements OnDestroy {
           : item),
       });
     }));
+  }
+
+  /** Explains why India stock data is missing, so a failure is visible on the page, not only in the console. */
+  private indiaProfileErrorMessage(failures: { symbol: string; error: unknown }[], requested: number): string {
+    const first = failures[0].error;
+    const prefix = `India stock data failed for ${failures.length} of ${requested} symbols`;
+    if (first instanceof HttpErrorResponse) {
+      // A 200 that is not JSON means the dev server answered with index.html instead of proxying to port 8082.
+      const body = typeof first.error?.text === 'string' ? first.error.text : '';
+      if (first.status === 200 && body.trimStart().startsWith('<')) {
+        return `${prefix}: /api/india returned the Angular page instead of JSON. Restart "ng serve" so proxy.conf.json is reloaded.`;
+      }
+      if (first.status === 0 || first.status === 504) {
+        return `${prefix}: news-scheduler-svc (port 8082) is not reachable. Check that it is running.`;
+      }
+      return `${prefix} (HTTP ${first.status}). See the browser console for details.`;
+    }
+    return `${prefix}. See the browser console for details.`;
+  }
+
+  /** Research sites for the current page: Yahoo / TV / Finviz / GoogleFin on US, TV / SC / FIN on India. */
+  get researchSites(): readonly ResearchSite[] {
+    return this.selectedMarket === 'India' ? INDIA_RESEARCH_SITES : US_RESEARCH_SITES;
+  }
+
+  /**
+   * Research link for a row, using the ticker from the Symbol column (e.g. NVDA, RELIANCE).
+   * India tickers lose any .NS/.BO suffix; special characters such as & are URL-encoded.
+   */
+  researchUrl(site: ResearchSite, item: WatchlistItem): string {
+    const symbol = this.selectedMarket === 'India'
+      ? this.indiaApiSymbol(item.symbol)
+      : item.symbol.trim().toUpperCase();
+    return site.urlTemplate.replace('{symbol}', encodeURIComponent(symbol));
   }
 
   /** Tapetide expects the bare NSE symbol, e.g. RELIANCE rather than RELIANCE.NS. */
