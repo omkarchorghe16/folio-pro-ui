@@ -1,6 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { HttpErrorResponse, HttpEventType, HttpResponse } from '@angular/common/http';
-import { Component, OnDestroy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, HostListener, OnDestroy } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { Observable, Subscription, catchError, forkJoin, from, map, mergeMap, of, switchMap } from 'rxjs';
 import { WatchlistGroup, WatchlistItem, WatchlistMarket, WatchlistMetricKey } from '../../core/models/wealth.models';
@@ -26,6 +26,9 @@ interface WatchlistColumn {
 const FAVORITE_SYMBOLS_STORAGE_KEY = 'folio-pro.favorite-symbols';
 const DEFAULT_COLUMN_KEYS: WatchlistColumnKey[] = ['symbol', 'name', 'assetType', 'price', 'change', 'trend'];
 const FAVORITES_LIST_ID = '__favorites__';
+/** Default table order whenever a watchlist is opened: market capitalization, highest first. */
+const DEFAULT_SORT_COLUMN: WatchlistColumnKey = 'marketCap';
+const DEFAULT_SORT_DIRECTION: 'asc' | 'desc' = 'desc';
 /** Name of the USA watchlist shown first in the dropdown and preselected on load (matched case-insensitively). */
 const DEFAULT_US_WATCHLIST_NAME = 'TOP';
 const MAX_IMPORT_FILE_SIZE_BYTES = 5 * 1024 * 1024;
@@ -39,12 +42,14 @@ const INDIA_RESEARCH_SITES: readonly ResearchSite[] = [
   { label: 'TV', name: 'TradingView', urlTemplate: 'https://in.tradingview.com/symbols/NSE-{symbol}/' },
   { label: 'SC', name: 'Screener', urlTemplate: 'https://www.screener.in/company/{symbol}/consolidated/' },
   { label: 'FIN', name: 'Finology', urlTemplate: 'https://ticker.finology.in/company/{symbol}' },
+  { label: 'IMG', name: 'Google image search', urlTemplate: 'https://www.google.com/search?q={symbol}+business+products+services+images+photos' },
 ];
 const US_RESEARCH_SITES: readonly ResearchSite[] = [
   { label: 'Yahoo', name: 'Yahoo Finance', urlTemplate: 'https://finance.yahoo.com/quote/{symbol}/' },
   { label: 'TV', name: 'TradingView', urlTemplate: 'https://www.tradingview.com/symbols/NASDAQ-{symbol}/' },
   { label: 'Finviz', name: 'Finviz', urlTemplate: 'https://finviz.com/stock?t={symbol}&p=d' },
   { label: 'GoogleFin', name: 'Google Finance', urlTemplate: 'https://www.google.com/finance/beta/quote/{symbol}:NASDAQ' },
+  { label: 'IMG', name: 'Google image search', urlTemplate: 'https://www.google.com/search?q={symbol}+business+products+services+images+photos' },
 ];
 /** Parallel Tapetide profile requests for the India page. */
 const INDIA_PROFILE_CONCURRENCY = 4;
@@ -62,6 +67,9 @@ const PERCENT_COLUMNS = new Set<string>([
 @Component({
   selector: 'app-watchlists',
   standalone: true,
+  // Angular 22 defaults components to OnPush. This component updates plain fields from HTTP callbacks
+  // (watchlists, selection, profile data), so it must be checked eagerly or the view only refreshes on a click.
+  changeDetection: ChangeDetectionStrategy.Eager,
   imports: [CommonModule, ShellComponent],
   template: `
     <app-shell>
@@ -487,8 +495,9 @@ export class WatchlistsComponent implements OnDestroy {
   private readonly indiaProfilesRequested = new Set<string>();
   private indiaProfilesInFlight = 0;
   private readonly indiaProfileSubscriptions = new Subscription();
-  sortColumnKey: WatchlistColumnKey | null = null;
-  sortDirection: 'asc' | 'desc' = 'asc';
+  /** Every watchlist opens sorted by market cap, largest first (T → B → M); header clicks can change it. */
+  sortColumnKey: WatchlistColumnKey | null = DEFAULT_SORT_COLUMN;
+  sortDirection: 'asc' | 'desc' = DEFAULT_SORT_DIRECTION;
   /** Only the newest column-preferences request may update the table, so a slow older response cannot win. */
   private columnPreferencesRequestId = 0;
   statusMessage = '';
@@ -601,6 +610,11 @@ export class WatchlistsComponent implements OnDestroy {
       .map(({ item }) => item);
   }
 
+  private resetSortToMarketCap(): void {
+    this.sortColumnKey = DEFAULT_SORT_COLUMN;
+    this.sortDirection = DEFAULT_SORT_DIRECTION;
+  }
+
   /** Header click cycles: ascending → descending → unsorted. */
   toggleSort(key: WatchlistColumnKey): void {
     if (this.sortColumnKey !== key) {
@@ -683,6 +697,7 @@ export class WatchlistsComponent implements OnDestroy {
 
   selectWatchlist(id: string): void {
     this.selectedWatchlistId = id;
+    this.resetSortToMarketCap();
     this.currentPage = 1;
     this.watchlistDropdownOpen = false;
     this.statusMessage = '';
@@ -691,6 +706,7 @@ export class WatchlistsComponent implements OnDestroy {
 
   selectFavoriteWatchlist(id: string): void {
     this.selectedWatchlistId = id;
+    this.resetSortToMarketCap();
     this.currentPage = 1;
     this.statusMessage = '';
     this.loadFmpProfiles();
@@ -735,7 +751,8 @@ export class WatchlistsComponent implements OnDestroy {
   }
 
   private setWatchlistFavoriteLocally(watchlistId: string, isFavorite: boolean): void {
-    this.watchlists = this.watchlists.map((list) => list.id === watchlistId ? { ...list, isFavorite } : list);
+    this.watchlists = this.sortFavoritesFirst(
+      this.watchlists.map((list) => list.id === watchlistId ? { ...list, isFavorite } : list));
   }
 
   isDefaultWatchlist(watchlist: WatchlistGroup): boolean {
@@ -1244,6 +1261,20 @@ export class WatchlistsComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     this.indiaProfileSubscriptions.unsubscribe();
+  }
+
+  /**
+   * Closes the watchlist dropdown on any click outside it. Clicks inside the dropdown stop propagation
+   * (see the .watchlist-dropdown element), so they never reach this listener.
+   */
+  @HostListener('document:click')
+  closeWatchlistDropdownOnOutsideClick(): void {
+    this.watchlistDropdownOpen = false;
+  }
+
+  @HostListener('document:keydown.escape')
+  closeWatchlistDropdownOnEscape(): void {
+    this.watchlistDropdownOpen = false;
   }
 
   /** Table text for the generic columns: money as T/B/M, percentages with 2 decimals, other decimals rounded. */
@@ -1797,22 +1828,26 @@ export class WatchlistsComponent implements OnDestroy {
       ...this.favoriteSymbolsByMarket[market],
       ...apiFavoriteSymbols,
     ]);
-    // For USA, the hardcoded default (TOP) is moved to the top and preselected. If it does not exist,
-    // the first watchlist is selected.
-    this.watchlists = market === 'US' ? this.withDefaultFirst(watchlists) : watchlists;
+    // Keep the server's order (favorites first, then the rest).
+    this.watchlists = watchlists;
     this.watchlistPage = response.page;
     this.watchlistTotalPages = response.totalPages;
-    this.selectedWatchlistId = this.watchlists[0]?.id ?? '';
+    // USA preselects the hardcoded default (TOP) wherever it sits in the list; otherwise the first watchlist.
+    const defaultWatchlist = market === 'US'
+      ? this.watchlists.find((watchlist) => this.isDefaultWatchlist(watchlist))
+      : undefined;
+    this.selectedWatchlistId = (defaultWatchlist ?? this.watchlists[0])?.id ?? '';
+    this.resetSortToMarketCap();
     this.isLoadingWatchlists = false;
     this.currentPage = 1;
     this.loadFmpProfiles();
   }
 
-  private withDefaultFirst(watchlists: WatchlistGroup[]): WatchlistGroup[] {
-    const defaultWatchlist = watchlists.find((watchlist) => this.isDefaultWatchlist(watchlist));
-    return defaultWatchlist
-      ? [defaultWatchlist, ...watchlists.filter((watchlist) => watchlist !== defaultWatchlist)]
-      : watchlists;
+  /** Same order as the backend: favorites first, then by id. */
+  private sortFavoritesFirst(watchlists: WatchlistGroup[]): WatchlistGroup[] {
+    return [...watchlists].sort((first, second) =>
+      Number(second.isFavorite === true) - Number(first.isFavorite === true)
+      || Number(first.id) - Number(second.id));
   }
 
   private loadFavorites(): void {
