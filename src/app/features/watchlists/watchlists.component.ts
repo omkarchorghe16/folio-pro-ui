@@ -1,10 +1,11 @@
 import { CommonModule } from '@angular/common';
 import { HttpErrorResponse, HttpEventType, HttpResponse } from '@angular/common/http';
-import { Component } from '@angular/core';
+import { Component, OnDestroy } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
-import { Observable, catchError, forkJoin, map, of, switchMap } from 'rxjs';
+import { Observable, Subscription, catchError, forkJoin, from, map, mergeMap, of, switchMap } from 'rxjs';
 import { WatchlistGroup, WatchlistItem, WatchlistMarket, WatchlistMetricKey } from '../../core/models/wealth.models';
 import { FmpProfile, FmpProfilesService } from '../../core/services/fmp-profiles.service';
+import { TapetideProfilePayload, TapetideProfileService } from '../../core/services/tapetide-profile.service';
 import { WatchlistImportMarket, WatchlistImportService } from '../../core/services/watchlist-import.service';
 import { WatchlistPageResponse, WatchlistsService } from '../../core/services/watchlists.service';
 import {
@@ -22,13 +23,24 @@ interface WatchlistColumn {
   group: string;
 }
 
-const FAVORITE_WATCHLISTS_STORAGE_KEY = 'folio-pro.favorite-watchlists';
 const FAVORITE_SYMBOLS_STORAGE_KEY = 'folio-pro.favorite-symbols';
 const DEFAULT_COLUMN_KEYS: WatchlistColumnKey[] = ['symbol', 'name', 'assetType', 'price', 'change', 'trend'];
 const FAVORITES_LIST_ID = '__favorites__';
 /** Name of the USA watchlist shown first in the dropdown and preselected on load (matched case-insensitively). */
 const DEFAULT_US_WATCHLIST_NAME = 'TOP';
 const MAX_IMPORT_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+/** Parallel Tapetide profile requests for the India page. */
+const INDIA_PROFILE_CONCURRENCY = 4;
+/** Tapetide reports money in ₹ crore; 1 crore = 10,000,000 rupees. */
+const RUPEES_PER_CRORE = 1e7;
+/** Money columns stored in full currency units and shown as T / B / M (e.g. ₹12.40T). */
+const AMOUNT_COLUMNS = new Set<string>(['marketCap', 'salesTtm', 'netProfitTtm']);
+/** Columns holding a percentage number, shown with two decimals and a % sign. */
+const PERCENT_COLUMNS = new Set<string>([
+  'dividendYield', 'roe', 'roce', 'roa', 'promoterHolding', 'revenueGrowth', 'earningsGrowth',
+  'salesGrowthQoQ', 'salesGrowthYoY', 'profitGrowthQoQ', 'profitGrowthYoY', 'salesCagr3y', 'salesCagr5y',
+  'profitCagr3y', 'profitCagr5y', 'roe3y', 'priceCagr1y', 'priceCagr3y', 'priceCagr5y', 'analystBuyPercent',
+]);
 
 @Component({
   selector: 'app-watchlists',
@@ -143,6 +155,7 @@ const MAX_IMPORT_FILE_SIZE_BYTES = 5 * 1024 * 1024;
                     <button type="button" class="dropdown-favorite-button"
                       [class.is-favorite]="isFavoriteWatchlist(watchlist)"
                       [attr.aria-pressed]="isFavoriteWatchlist(watchlist)"
+                      [disabled]="isFavoriteUpdating(watchlist)"
                       [attr.aria-label]="isFavoriteWatchlist(watchlist) ? 'Remove ' + watchlist.name + ' from favorites' : 'Add ' + watchlist.name + ' to favorites'"
                        (click)="toggleFavoriteWatchlist(watchlist)">{{ isFavoriteWatchlist(watchlist) ? '★' : '☆' }}</button>
                   </div>
@@ -289,7 +302,7 @@ const MAX_IMPORT_FILE_SIZE_BYTES = 5 * 1024 * 1024;
                       [disabled]="!item.profileData?.['description']"
                       [attr.aria-label]="'View description for ' + item.name"
                       (click)="openDescriptionDialog(item)">View</button>
-                    <span *ngSwitchDefault>{{ getColumnValue(item, column.key) }}</span>
+                    <span *ngSwitchDefault>{{ formatCell(item, column.key) }}</span>
                   </td>
                 </tr>
                 <tr *ngIf="paginatedItems.length === 0">
@@ -314,7 +327,7 @@ const MAX_IMPORT_FILE_SIZE_BYTES = 5 * 1024 * 1024;
     </app-shell>
   `,
 })
-export class WatchlistsComponent {
+export class WatchlistsComponent implements OnDestroy {
   readonly pageSize = 15;
   readonly availableColumns: WatchlistColumn[] = [
     { key: 'symbol', label: 'Symbol', group: 'Overview' },
@@ -391,13 +404,46 @@ export class WatchlistsComponent {
     { key: 'fund', label: 'Fund', group: 'Profile' },
     { key: 'adr', label: 'ADR', group: 'Profile' },
     { key: 'delisted', label: 'Delisted', group: 'Profile' },
+    { key: 'nseSymbol', label: 'NSE symbol', group: 'India market' },
+    { key: 'bseCode', label: 'BSE code', group: 'India market' },
+    { key: 'marketCapCategory', label: 'Cap category', group: 'India market' },
+    { key: 'macroSector', label: 'Macro sector', group: 'India market' },
+    { key: 'basicIndustry', label: 'Basic industry', group: 'India market' },
+    { key: 'fnoListed', label: 'F&O listed', group: 'India market' },
+    { key: 'faceValue', label: 'Face value', group: 'India market' },
+    { key: 'bookValue', label: 'Book value / share', group: 'India market' },
+    { key: 'sharesOutstanding', label: 'Shares outstanding', group: 'India market' },
+    { key: 'promoterHolding', label: 'Promoter holding', group: 'India market' },
+    { key: 'roce', label: 'ROCE', group: 'India market' },
+    { key: 'salesTtm', label: 'Sales (TTM)', group: 'India market' },
+    { key: 'netProfitTtm', label: 'Net profit (TTM)', group: 'India market' },
+    { key: 'peerMedianPE', label: 'Peer median P/E', group: 'India market' },
+    { key: 'latestQuarter', label: 'Latest quarter', group: 'India growth' },
+    { key: 'salesGrowthQoQ', label: 'Sales growth QoQ', group: 'India growth' },
+    { key: 'salesGrowthYoY', label: 'Sales growth YoY', group: 'India growth' },
+    { key: 'profitGrowthQoQ', label: 'Profit growth QoQ', group: 'India growth' },
+    { key: 'profitGrowthYoY', label: 'Profit growth YoY', group: 'India growth' },
+    { key: 'salesCagr3y', label: 'Sales CAGR 3Y', group: 'India growth' },
+    { key: 'salesCagr5y', label: 'Sales CAGR 5Y', group: 'India growth' },
+    { key: 'profitCagr3y', label: 'Profit CAGR 3Y', group: 'India growth' },
+    { key: 'profitCagr5y', label: 'Profit CAGR 5Y', group: 'India growth' },
+    { key: 'roe3y', label: 'ROE 3Y avg', group: 'India growth' },
+    { key: 'priceCagr1y', label: 'Stock return 1Y', group: 'India growth' },
+    { key: 'priceCagr3y', label: 'Stock CAGR 3Y', group: 'India growth' },
+    { key: 'priceCagr5y', label: 'Stock CAGR 5Y', group: 'India growth' },
+    { key: 'analystRatings', label: 'Analyst ratings', group: 'India analysts' },
+    { key: 'analystBuyPercent', label: 'Analyst buy %', group: 'India analysts' },
+    { key: 'analystCount', label: 'Analyst count', group: 'India analysts' },
+    { key: 'pros', label: 'Pros', group: 'India analysts' },
+    { key: 'cons', label: 'Cons', group: 'India analysts' },
   ];
   readonly columnGroups = [...new Set(this.availableColumns.map((column) => column.group))];
   /** Columns shown in the table, in order. Always taken from the user's saved preferences (or the defaults). */
   visibleColumnKeys: WatchlistColumnKey[] = [...DEFAULT_COLUMN_KEYS];
   draftColumnKeys: WatchlistColumnKey[] = [];
   watchlists: WatchlistGroup[] = [];
-  private favoriteWatchlistKeys = new Set<string>();
+  /** Watchlist IDs with a favorite PATCH in flight, so a double click cannot send conflicting updates. */
+  private readonly favoriteUpdatesInFlight = new Set<string>();
   private favoriteSymbolsByMarket: Record<WatchlistMarket, Set<string>> = { US: new Set(), India: new Set() };
   selectedMarket: WatchlistMarket = 'US';
   selectedWatchlistId = '';
@@ -414,6 +460,10 @@ export class WatchlistsComponent {
   newWatchlistMessage = '';
   columnEditorMessage = '';
   isSavingColumns = false;
+  /** India symbols already requested from Tapetide (bare NSE symbols). */
+  private readonly indiaProfilesRequested = new Set<string>();
+  private indiaProfilesInFlight = 0;
+  private readonly indiaProfileSubscriptions = new Subscription();
   sortColumnKey: WatchlistColumnKey | null = null;
   sortDirection: 'asc' | 'desc' = 'asc';
   /** Only the newest column-preferences request may update the table, so a slow older response cannot win. */
@@ -434,6 +484,7 @@ export class WatchlistsComponent {
     private readonly watchlistImportService: WatchlistImportService,
     private readonly watchlistsService: WatchlistsService,
     private readonly fmpProfilesService: FmpProfilesService,
+    private readonly tapetideProfileService: TapetideProfileService,
     private readonly columnPreferencesService: WatchlistColumnPreferencesService,
   ) {
     this.loadFavorites();
@@ -623,19 +674,45 @@ export class WatchlistsComponent {
   }
 
   isFavoriteWatchlist(watchlist: WatchlistGroup): boolean {
-    return this.favoriteWatchlistKeys.has(this.watchlistKey(watchlist));
+    return watchlist.isFavorite === true;
   }
 
+  isFavoriteUpdating(watchlist: WatchlistGroup): boolean {
+    return this.favoriteUpdatesInFlight.has(watchlist.id);
+  }
+
+  /**
+   * Star click: saves the new value with PATCH /api/v1/watchlists/{id}/favorite (USA and India).
+   * The star flips immediately and is reverted if the request fails.
+   */
   toggleFavoriteWatchlist(watchlist: WatchlistGroup): void {
-    const key = this.watchlistKey(watchlist);
-    if (this.favoriteWatchlistKeys.has(key)) {
-      this.favoriteWatchlistKeys.delete(key);
-      this.statusMessage = `${watchlist.name} removed from favorites.`;
-    } else {
-      this.favoriteWatchlistKeys.add(key);
-      this.statusMessage = `${watchlist.name} added to favorites.`;
+    if (!watchlist.id || this.favoriteUpdatesInFlight.has(watchlist.id)) {
+      return;
     }
-    this.persistFavorites();
+    const isFavorite = !this.isFavoriteWatchlist(watchlist);
+    this.favoriteUpdatesInFlight.add(watchlist.id);
+    this.setWatchlistFavoriteLocally(watchlist.id, isFavorite);
+    this.watchlistsService.setFavorite(watchlist.id, isFavorite, environment.currentUserId).subscribe({
+      next: (saved) => {
+        this.favoriteUpdatesInFlight.delete(watchlist.id);
+        this.setWatchlistFavoriteLocally(watchlist.id, saved.isFavorite === true);
+        this.statusMessage = saved.isFavorite
+          ? `${watchlist.name} added to favorites.`
+          : `${watchlist.name} removed from favorites.`;
+      },
+      error: (error: unknown) => {
+        this.favoriteUpdatesInFlight.delete(watchlist.id);
+        this.setWatchlistFavoriteLocally(watchlist.id, !isFavorite);
+        console.error('[Watchlists] Failed to update favorite', error);
+        this.statusMessage = error instanceof HttpErrorResponse && error.status !== 0
+          ? `Could not update favorite for ${watchlist.name} (HTTP ${error.status}).`
+          : 'Unable to reach the watchlist service. The favorite was not saved.';
+      },
+    });
+  }
+
+  private setWatchlistFavoriteLocally(watchlistId: string, isFavorite: boolean): void {
+    this.watchlists = this.watchlists.map((list) => list.id === watchlistId ? { ...list, isFavorite } : list);
   }
 
   isDefaultWatchlist(watchlist: WatchlistGroup): boolean {
@@ -989,6 +1066,38 @@ export class WatchlistsComponent {
       case 'beta':
       case 'shortFloat':
       case 'nextEarnings':
+      case 'nseSymbol':
+      case 'bseCode':
+      case 'basicIndustry':
+      case 'macroSector':
+      case 'marketCapCategory':
+      case 'fnoListed':
+      case 'faceValue':
+      case 'bookValue':
+      case 'roce':
+      case 'promoterHolding':
+      case 'salesTtm':
+      case 'netProfitTtm':
+      case 'sharesOutstanding':
+      case 'latestQuarter':
+      case 'salesGrowthQoQ':
+      case 'salesGrowthYoY':
+      case 'profitGrowthQoQ':
+      case 'profitGrowthYoY':
+      case 'salesCagr3y':
+      case 'salesCagr5y':
+      case 'profitCagr3y':
+      case 'profitCagr5y':
+      case 'roe3y':
+      case 'priceCagr1y':
+      case 'priceCagr3y':
+      case 'priceCagr5y':
+      case 'analystBuyPercent':
+      case 'analystRatings':
+      case 'analystCount':
+      case 'peerMedianPE':
+      case 'pros':
+      case 'cons':
         return item.metrics?.[key] ?? this.profileMetric(item, key) ?? '—';
     }
   }
@@ -1006,6 +1115,10 @@ export class WatchlistsComponent {
    * the selection changes; symbols that already have profile data are not requested again.
    */
   private loadFmpProfiles(): void {
+    if (this.selectedMarket === 'India') {
+      this.loadIndiaProfiles();
+      return;
+    }
     if (this.selectedMarket !== 'US' || this.isLoadingWatchlists) {
       return;
     }
@@ -1104,6 +1217,209 @@ export class WatchlistsComponent {
       }
       return entry as FmpProfile;
     });
+  }
+
+  ngOnDestroy(): void {
+    this.indiaProfileSubscriptions.unsubscribe();
+  }
+
+  /** Table text for the generic columns: money as T/B/M, percentages with 2 decimals, other decimals rounded. */
+  formatCell(item: WatchlistItem, key: WatchlistColumnKey): string | number {
+    const value = this.getColumnValue(item, key);
+    if (typeof value !== 'number') {
+      return value;
+    }
+    if (AMOUNT_COLUMNS.has(key)) {
+      return this.formatMarketCap(value);
+    }
+    if (PERCENT_COLUMNS.has(key)) {
+      return `${value.toFixed(2)}%`;
+    }
+    return Number.isInteger(value) ? value : Number(value.toFixed(2));
+  }
+
+  /**
+   * Fetches a Tapetide profile for each symbol of the selected India watchlist that has not been loaded yet,
+   * a few at a time, and fills in each row as its response arrives. Results are written to every watchlist
+   * that contains the symbol, so switching lists mid-load loses nothing.
+   */
+  private loadIndiaProfiles(): void {
+    if (this.selectedMarket !== 'India' || this.isLoadingWatchlists) {
+      return;
+    }
+    const symbols = [...new Set(this.selectedWatchlist.items
+      .filter((item) => !item.profileData)
+      .map((item) => this.indiaApiSymbol(item.symbol))
+      .filter((symbol) => symbol && !this.indiaProfilesRequested.has(symbol)))];
+    if (!symbols.length) {
+      return;
+    }
+    symbols.forEach((symbol) => this.indiaProfilesRequested.add(symbol));
+    this.isLoadingProfiles = true;
+    this.indiaProfilesInFlight += symbols.length;
+
+    this.indiaProfileSubscriptions.add(from(symbols).pipe(
+      mergeMap((symbol) => this.tapetideProfileService.getProfile(symbol).pipe(
+        map((response) => ({ symbol, payload: response?.payload ?? null })),
+        catchError((error: unknown) => {
+          console.error(`[Tapetide] Failed to load India profile for ${symbol}`, error);
+          // Allow a retry the next time this watchlist is opened.
+          this.indiaProfilesRequested.delete(symbol);
+          return of({ symbol, payload: null });
+        }),
+      ), INDIA_PROFILE_CONCURRENCY),
+    ).subscribe(({ symbol, payload }) => {
+      this.indiaProfilesInFlight--;
+      this.isLoadingProfiles = this.indiaProfilesInFlight > 0;
+      if (!payload?.data) {
+        if (payload) {
+          console.warn(`[Tapetide] No profile data returned for ${symbol}`);
+        }
+        return;
+      }
+      this.watchlists = this.watchlists.map((list) => list.market !== 'India' ? list : {
+        ...list,
+        items: list.items.map((item) => this.indiaApiSymbol(item.symbol) === symbol
+          ? this.applyTapetideProfile(item, payload)
+          : item),
+      });
+    }));
+  }
+
+  /** Tapetide expects the bare NSE symbol, e.g. RELIANCE rather than RELIANCE.NS. */
+  private indiaApiSymbol(symbol: string): string {
+    return symbol.trim().toUpperCase().replace(/\.(NS|BO)$/, '');
+  }
+
+  /** Maps a Tapetide profile (with ratings and peers) onto a watchlist row. */
+  private applyTapetideProfile(item: WatchlistItem, payload: TapetideProfilePayload): WatchlistItem {
+    const data = payload.data ?? {};
+    const company = data.company ?? {};
+    const fundamentals = data.fundamentals ?? {};
+    const priceMetrics = data.price_metrics ?? {};
+    const quote = data.quote ?? {};
+    const quarterly = data.quarterly_growth ?? {};
+    const growth = data.growth_metrics ?? {};
+    const unified = data.unified_growth_rates ?? {};
+    const ratings = payload.ratings?.data ?? {};
+    const peers = payload.peers?.data ?? {};
+    const selfPeer = peers.rows?.find((row) => row.is_self)
+      ?? peers.rows?.find((row) => row.symbol?.toUpperCase() === this.indiaApiSymbol(item.symbol));
+
+    const num = (...values: unknown[]): number | undefined => {
+      for (const value of values) {
+        const parsed = this.profileNumber(typeof value === 'string' ? value.replace('%', '') : value);
+        if (parsed !== undefined) {
+          return parsed;
+        }
+      }
+      return undefined;
+    };
+    const text = (...values: unknown[]): string | undefined =>
+      values.map((value) => this.profileString(value)).find((value) => value !== undefined);
+    const crore = (value: unknown): number | undefined => {
+      const amount = num(value);
+      return amount === undefined ? undefined : amount * RUPEES_PER_CRORE;
+    };
+    const yesNo = (value: boolean | null | undefined): string | undefined =>
+      value === true ? 'Yes' : value === false ? 'No' : undefined;
+    const ratingsSummary = ratings.total_ratings
+      ? `${ratings.buy ?? 0} Buy / ${ratings.hold ?? 0} Hold / ${ratings.sell ?? 0} Sell`
+      : undefined;
+
+    const mapped: Partial<Record<WatchlistMetricKey, string | number | undefined>> = {
+      // Market data
+      open: num(quote.open),
+      previousClose: num(quote.prev_close),
+      dayHigh: num(quote.high),
+      dayLow: num(quote.low),
+      changeAmount: num(quote.change),
+      marketCap: crore(fundamentals.market_cap ?? priceMetrics.market_cap),
+      // Fundamentals
+      peRatio: num(fundamentals.stock_pe, priceMetrics.pe_ttm),
+      eps: num(fundamentals.eps, priceMetrics.eps_ttm),
+      priceToBook: num(fundamentals.price_to_book, priceMetrics.pb),
+      dividendYield: num(fundamentals.dividend_yield),
+      roe: num(fundamentals.roe),
+      roa: num(selfPeer?.roa),
+      debtToEquity: num(fundamentals.debt_to_equity),
+      revenueGrowth: num(fundamentals.revenue_growth_1y, unified['revenue_growth']?.['1Y']),
+      earningsGrowth: num(unified['net_income_growth']?.['1Y']),
+      // Technical
+      week52High: num(fundamentals.high_52w, priceMetrics.high_52w),
+      week52Low: num(fundamentals.low_52w, priceMetrics.low_52w),
+      rsi14: num(fundamentals.day_rsi14),
+      // Profile
+      currency: 'INR',
+      country: 'India',
+      exchange: text(company.exchange),
+      industry: text(company.industry),
+      description: text(company.about),
+      updatedAt: text(quote.updated_at, priceMetrics.as_of, company.updated_at),
+      isin: text(company.isin),
+      website: text(company.website),
+      ceo: text(company.ceo)?.replace(/\s+/g, ' '),
+      fullTimeEmployees: num(company.employees),
+      ipoDate: text(company.listing_date),
+      activelyTrading: yesNo(company.is_active),
+      // India market
+      nseSymbol: text(company.nse_symbol, company.symbol),
+      bseCode: text(company.bse_code),
+      basicIndustry: text(company.basic_industry),
+      macroSector: text(company.macro_sector),
+      marketCapCategory: text(fundamentals.company_classification),
+      fnoListed: yesNo(company.is_fno),
+      faceValue: num(company.face_value),
+      bookValue: num(fundamentals.book_value, priceMetrics.book_value),
+      sharesOutstanding: num(priceMetrics.shares_outstanding),
+      promoterHolding: num(selfPeer?.promoter_holding),
+      roce: num(fundamentals.roce),
+      salesTtm: crore(selfPeer?.sales_ttm),
+      netProfitTtm: crore(selfPeer?.net_profit_ttm),
+      peerMedianPE: num(peers.median?.pe),
+      // India growth
+      latestQuarter: text(quarterly.latest_quarter),
+      salesGrowthQoQ: num(quarterly.sales_qoq),
+      salesGrowthYoY: num(quarterly.sales_yoy),
+      profitGrowthQoQ: num(quarterly.net_profit_qoq),
+      profitGrowthYoY: num(quarterly.net_profit_yoy, fundamentals.yoy_quarterly_profit_growth),
+      salesCagr3y: num(growth['Compounded Sales Growth']?.['3 Years']),
+      salesCagr5y: num(growth['Compounded Sales Growth']?.['5 Years']),
+      profitCagr3y: num(growth['Compounded Profit Growth']?.['3 Years']),
+      profitCagr5y: num(growth['Compounded Profit Growth']?.['5 Years']),
+      roe3y: num(growth['Return on Equity']?.['3 Years']),
+      priceCagr1y: num(growth['Stock Price CAGR']?.['1 Year']),
+      priceCagr3y: num(growth['Stock Price CAGR']?.['3 Years']),
+      priceCagr5y: num(growth['Stock Price CAGR']?.['5 Years']),
+      // India analysts
+      analystRatings: ratingsSummary,
+      analystBuyPercent: num(ratings.percent_buy),
+      analystCount: num(ratings.total_ratings),
+      pros: company.pros?.length ? company.pros.join(' • ') : undefined,
+      cons: company.cons?.length ? company.cons.join(' • ') : undefined,
+    };
+    const metrics: Partial<Record<WatchlistMetricKey, string | number>> = { ...item.metrics };
+    for (const [key, value] of Object.entries(mapped) as [WatchlistMetricKey, string | number | undefined][]) {
+      if (value !== undefined) {
+        metrics[key] = value;
+      }
+    }
+
+    const price = num(quote.price, priceMetrics.price);
+    const volume = num(quote.volume, fundamentals.volume);
+    const stockType = text(company.stock_type);
+    return {
+      ...item,
+      name: text(company.name, company.display_name) ?? item.name,
+      price: price ?? item.price,
+      change: num(quote.change_pct) ?? item.change,
+      sector: text(company.sector) ?? item.sector,
+      assetType: stockType ? stockType.charAt(0) + stockType.slice(1).toLowerCase() : item.assetType,
+      volume: volume === undefined ? item.volume : String(volume),
+      metrics,
+      // Marks the row as loaded and feeds the description dialog.
+      profileData: { description: text(company.about) ?? '' },
+    };
   }
 
   private applyFmpProfile(item: WatchlistItem, profile: FmpProfile): WatchlistItem {
@@ -1406,6 +1722,7 @@ export class WatchlistsComponent {
       name: watchlist.name,
       market: watchlist.market,
       currency: watchlist.currency,
+      isFavorite: watchlist.isFavorite === true,
       items: watchlist.items.map((item) => ({
         symbol: item.symbol,
         name: item.name,
@@ -1435,13 +1752,7 @@ export class WatchlistsComponent {
       : watchlists;
   }
 
-  private watchlistKey(watchlist: WatchlistGroup): string {
-    return `${watchlist.market}:${watchlist.id}`;
-  }
-
   private loadFavorites(): void {
-    const favoriteWatchlists = this.readStoredStringArray(FAVORITE_WATCHLISTS_STORAGE_KEY);
-    this.favoriteWatchlistKeys = new Set(favoriteWatchlists);
     const storedSymbols = this.readStoredRecord(FAVORITE_SYMBOLS_STORAGE_KEY);
     this.favoriteSymbolsByMarket = {
       US: new Set(storedSymbols.US ?? []),
@@ -1521,7 +1832,6 @@ export class WatchlistsComponent {
   }
 
   private persistFavorites(): void {
-    localStorage.setItem(FAVORITE_WATCHLISTS_STORAGE_KEY, JSON.stringify([...this.favoriteWatchlistKeys]));
     localStorage.setItem(FAVORITE_SYMBOLS_STORAGE_KEY, JSON.stringify({
       US: [...this.favoriteSymbolsByMarket.US],
       India: [...this.favoriteSymbolsByMarket.India],

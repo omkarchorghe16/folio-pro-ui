@@ -114,7 +114,40 @@ export type WatchlistMetricKey =
   | 'etf'
   | 'fund'
   | 'adr'
-  | 'delisted';
+  | 'delisted'
+  // India (Tapetide) columns
+  | 'nseSymbol'
+  | 'bseCode'
+  | 'basicIndustry'
+  | 'macroSector'
+  | 'marketCapCategory'
+  | 'fnoListed'
+  | 'faceValue'
+  | 'bookValue'
+  | 'roce'
+  | 'promoterHolding'
+  | 'salesTtm'
+  | 'netProfitTtm'
+  | 'sharesOutstanding'
+  | 'latestQuarter'
+  | 'salesGrowthQoQ'
+  | 'salesGrowthYoY'
+  | 'profitGrowthQoQ'
+  | 'profitGrowthYoY'
+  | 'salesCagr3y'
+  | 'salesCagr5y'
+  | 'profitCagr3y'
+  | 'profitCagr5y'
+  | 'roe3y'
+  | 'priceCagr1y'
+  | 'priceCagr3y'
+  | 'priceCagr5y'
+  | 'analystBuyPercent'
+  | 'analystRatings'
+  | 'analystCount'
+  | 'peerMedianPE'
+  | 'pros'
+  | 'cons';
 
 export interface PortfolioSummary {
   totalValue: number;
@@ -149,6 +182,8 @@ export interface WatchlistGroup {
   name: string;
   market: WatchlistMarket;
   currency: 'USD' | 'INR';
+  /** Starred in the dropdown; stored in watchlists_usa / watchlists_india.is_favorite. */
+  isFavorite?: boolean;
   items: WatchlistItem[];
 }
 

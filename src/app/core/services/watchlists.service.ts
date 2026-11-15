@@ -17,6 +17,7 @@ export interface ApiWatchlist {
   market: WatchlistMarket;
   currency: 'USD' | 'INR';
   userId: number;
+  isFavorite: boolean;
   items: ApiWatchlistItem[];
 }
 
@@ -40,5 +41,11 @@ export class WatchlistsService {
       .set('size', size)
       .set('market', market);
     return this.http.get<WatchlistPageResponse>(this.watchlistsUrl, { params });
+  }
+
+  /** Stars or un-stars a USA or India watchlist for the given user. */
+  setFavorite(watchlistId: string | number, isFavorite: boolean, userId: number): Observable<ApiWatchlist> {
+    const params = new HttpParams().set('userId', userId);
+    return this.http.patch<ApiWatchlist>(`${this.watchlistsUrl}/${watchlistId}/favorite`, { isFavorite }, { params });
   }
 }
