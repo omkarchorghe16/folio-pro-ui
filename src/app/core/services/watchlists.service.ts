@@ -21,6 +21,11 @@ export interface ApiWatchlist {
   items: ApiWatchlistItem[];
 }
 
+export interface NewWatchlistItem {
+  symbol: string;
+  name: string;
+}
+
 export interface WatchlistPageResponse {
   content: ApiWatchlist[];
   page: number;
@@ -41,6 +46,15 @@ export class WatchlistsService {
       .set('size', size)
       .set('market', market);
     return this.http.get<WatchlistPageResponse>(this.watchlistsUrl, { params });
+  }
+
+  /**
+   * Saves stocks into an India watchlist (watchlist_items_india) owned by the user. All or none: the backend
+   * answers 400 if a symbol is already in the list, 404 if the list is not an India list of this user.
+   */
+  addIndiaItems(watchlistId: string | number, items: NewWatchlistItem[], userId: number): Observable<ApiWatchlistItem[]> {
+    const params = new HttpParams().set('userId', userId);
+    return this.http.post<ApiWatchlistItem[]>(`${this.watchlistsUrl}/india/${watchlistId}/items`, { items }, { params });
   }
 
   /** Stars or un-stars a USA or India watchlist for the given user. */

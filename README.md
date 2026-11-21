@@ -31,6 +31,11 @@ backend call acts as user `1`. Nothing on any screen is investment advice.
 - **Company description** column: *View* opens the description, plus research links that open in a
   new tab — US: Yahoo, TradingView, Finviz, Google Finance, IMG (Google search); India: TradingView,
   Screener, Finology, IMG.
+- **＋ Add stocks** (next to the dropdown) opens a dialog to pick stocks. On the India page, typing
+  searches NSE tickers and company names (`GET /api/india/nse/symbols`, 8082); picking a match puts it
+  under *Stocks to add*. **Save** writes them to the selected watchlist for user 1
+  (`POST /api/v1/watchlists/india/{id}/items?userId=1` → `watchlist_items_india`, all or none). The US
+  page suggests symbols from the loaded watchlists and keeps added stocks for the session only.
 - **Import CSV** creates watchlists for the current market; **Export CSV** downloads the current list.
 
 ## Running locally
@@ -78,6 +83,7 @@ src/
       watchlist-column-preferences.service.ts  saved table columns (8081)
       fmp-profiles.service.ts                  US profiles via /api/fmp (8082)
       tapetide-profile.service.ts              India profiles via /api/india (8082)
+      nse-symbols.service.ts                   NSE ticker/name search via /api/india (8082)
       wealth.service.ts                        mock data for the other screens
     features/             one standalone component per screen
     shared/components/    ShellComponent (top nav + rail), auth shell, metric card
