@@ -8,6 +8,7 @@ import {
 import { WatchlistGroup, WatchlistItem, WatchlistMarket, WatchlistMetricKey } from '../../core/models/wealth.models';
 import { FmpProfile, FmpProfilesService } from '../../core/services/fmp-profiles.service';
 import { NseSymbol, NseSymbolsService } from '../../core/services/nse-symbols.service';
+import { UsSymbol, UsSymbolsService } from '../../core/services/us-symbols.service';
 import { TapetideProfilePayload, TapetideProfileService } from '../../core/services/tapetide-profile.service';
 import { WatchlistImportMarket, WatchlistImportService } from '../../core/services/watchlist-import.service';
 import { WatchlistPageResponse, WatchlistsService } from '../../core/services/watchlists.service';
@@ -56,9 +57,9 @@ const US_RESEARCH_SITES: readonly ResearchSite[] = [
 ];
 /** Parallel Tapetide profile requests for the India page. */
 const INDIA_PROFILE_CONCURRENCY = 4;
-/** India "Add stocks" type-ahead: wait this long after the last keystroke, then ask for this many matches. */
-const NSE_SEARCH_DEBOUNCE_MS = 250;
-const NSE_SUGGESTION_LIMIT = 20;
+/** "Add stocks" type-ahead (NSE on India, Nasdaq Trader on US): wait this long after the last keystroke, then ask for this many matches. */
+const SYMBOL_SEARCH_DEBOUNCE_MS = 250;
+const SYMBOL_SUGGESTION_LIMIT = 20;
 /** Tapetide reports money in ₹ crore; 1 crore = 10,000,000 rupees. */
 const RUPEES_PER_CRORE = 1e7;
 /** Money columns stored in full currency units and shown as T / B / M (e.g. ₹12.40T). */
@@ -228,15 +229,15 @@ const PERCENT_COLUMNS = new Set<string>([
                   <button type="submit" class="save-button" [disabled]="!stockSearchText.trim()">Add</button>
                 </div>
               </form>
-              <p class="suggestion-status" *ngIf="isSearchingNse" role="status">Searching NSE symbols…</p>
-              <p class="modal-error" *ngIf="nseSearchMessage && !isSearchingNse" role="status">{{ nseSearchMessage }}</p>
+              <p class="suggestion-status" *ngIf="isSearchingSymbols" role="status">Searching {{ symbolListLabel }} symbols…</p>
+              <p class="modal-error" *ngIf="symbolSearchMessage && !isSearchingSymbols" role="status">{{ symbolSearchMessage }}</p>
               <p class="suggestion-status" role="status"
-                *ngIf="selectedMarket === 'India' && !isSearchingNse && !nseSearchMessage && nseSearchedQuery
-                  && nseSearchedQuery === stockSearchText.trim() && !stockSuggestions.length">
-                No NSE symbols match “{{ nseSearchedQuery }}”.
+                *ngIf="!isSearchingSymbols && !symbolSearchMessage && symbolSearchedQuery
+                  && symbolSearchedQuery === stockSearchText.trim() && !stockSuggestions.length">
+                No {{ symbolListLabel }} symbols match “{{ symbolSearchedQuery }}”.
               </p>
               <div class="stock-suggestions" *ngIf="stockSuggestions.length">
-                <span class="suggestion-label">{{ selectedMarket === 'India' ? 'Matching NSE symbols' : 'Matching assets' }}</span>
+                <span class="suggestion-label">Matching {{ symbolListLabel }} symbols</span>
                 <button type="button" class="suggestion-item" *ngFor="let suggestion of stockSuggestions"
                   (click)="stageStock(suggestion)">
                   <span>
@@ -246,10 +247,9 @@ const PERCENT_COLUMNS = new Set<string>([
                   <span class="suggestion-add">＋ Add</span>
                 </button>
               </div>
-              <p class="sample-warning" *ngIf="selectedMarket === 'India'">
+              <p class="sample-warning">
                 Saved to <strong>{{ selectedWatchlist.name }}</strong> for user {{ currentUserId }}. Market data loads after saving.
               </p>
-              <p class="sample-warning" *ngIf="selectedMarket !== 'India'">Manually entered symbols are saved with placeholder price and performance until market data is connected.</p>
               <div class="staged-heading"><strong>Stocks to add</strong><span>{{ stagedStocks.length }} selected</span></div>
               <div class="staged-list" *ngIf="stagedStocks.length; else noStagedStocks">
                 <div class="staged-row" *ngFor="let stock of stagedStocks; let index = index">
@@ -336,6 +336,16 @@ const PERCENT_COLUMNS = new Set<string>([
                         [attr.aria-pressed]="isFavoriteSymbol(item)"
                         [attr.aria-label]="isFavoriteSymbol(item) ? 'Remove ' + item.symbol + ' from favorites' : 'Add ' + item.symbol + ' to favorites'"
                         (click)="toggleFavoriteSymbol(item)">{{ isFavoriteSymbol(item) ? '★' : '☆' }}</button>
+                      <button type="button" class="delete-symbol-button" *ngIf="canDeleteStocks"
+                        [disabled]="deletingSymbols.has(item.symbol)"
+                        [attr.aria-label]="'Remove ' + item.symbol + ' from ' + selectedWatchlist.name"
+                        [title]="'Remove ' + item.symbol + ' from ' + selectedWatchlist.name"
+                        (click)="removeStock(item)">
+                        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor"
+                          stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/>
+                        </svg>
+                      </button>
                     </span>
                     <span *ngSwitchCase="'price'">{{ item.price === undefined ? '—' : (item.price | currency:selectedWatchlist.currency:'symbol':'1.2-2') }}</span>
                     <span *ngSwitchCase="'change'" [ngClass]="item.change === undefined ? '' : item.change >= 0 ? 'text-success' : 'text-danger'">
@@ -508,15 +518,17 @@ export class WatchlistsComponent implements OnDestroy {
   stagedStocks: WatchlistItem[] = [];
   addStocksMessage = '';
   isSavingStocks = false;
+  /** India stocks with a delete request in flight, so a double click cannot send two deletes. */
+  readonly deletingSymbols = new Set<string>();
   readonly currentUserId = environment.currentUserId;
-  /** India only: NSE matches for the text in the Add stocks search box. */
-  nseSuggestions: WatchlistItem[] = [];
-  isSearchingNse = false;
-  nseSearchMessage = '';
-  /** Query whose NSE results are in nseSuggestions, so "no matches" is shown only for a finished search. */
-  nseSearchedQuery = '';
-  private readonly nseSearchText$ = new Subject<string>();
-  private readonly nseSearchSubscription: Subscription;
+  /** NSE (India) or US symbol-directory matches for the text in the Add stocks search box. */
+  symbolSuggestions: WatchlistItem[] = [];
+  isSearchingSymbols = false;
+  symbolSearchMessage = '';
+  /** Query whose results are in symbolSuggestions, so "no matches" is shown only for a finished search. */
+  symbolSearchedQuery = '';
+  private readonly symbolSearchText$ = new Subject<string>();
+  private readonly symbolSearchSubscription: Subscription;
   addWatchlistDialogOpen = false;
   newWatchlistName = '';
   newWatchlistMessage = '';
@@ -547,13 +559,14 @@ export class WatchlistsComponent implements OnDestroy {
     private readonly fmpProfilesService: FmpProfilesService,
     private readonly tapetideProfileService: TapetideProfileService,
     private readonly nseSymbolsService: NseSymbolsService,
+    private readonly usSymbolsService: UsSymbolsService,
     private readonly columnPreferencesService: WatchlistColumnPreferencesService,
   ) {
     this.loadFavorites();
     // Each route (/watchlists/us, /watchlists/india) fixes the market for its page.
     this.selectedMarket = route.snapshot.data['market'] === 'India' ? 'India' : 'US';
     this.loadWatchlists(this.selectedMarket);
-    this.nseSearchSubscription = this.watchNseSearch();
+    this.symbolSearchSubscription = this.watchSymbolSearch();
   }
 
   get selectedWatchlist(): WatchlistGroup {
@@ -707,22 +720,12 @@ export class WatchlistsComponent implements OnDestroy {
   }
 
   get stockSuggestions(): WatchlistItem[] {
-    if (this.selectedMarket === 'India') {
-      return this.nseSuggestions.filter((item) => !this.isAlreadyAdded(item.symbol));
-    }
-    const query = this.stockSearchText.trim().toLowerCase();
-    if (query.length < 2) {
-      return [];
-    }
-    return this.watchlists.flatMap((watchlist) => watchlist.items)
-      .filter((item, index, items) => {
-        const matches = item.symbol.toLowerCase().includes(query) || item.name.toLowerCase().includes(query);
-        const unique = items.findIndex((candidate) => candidate.symbol === item.symbol) === index;
-        const alreadyAdded = this.selectedWatchlist.items.some((current) => current.symbol === item.symbol)
-          || this.stagedStocks.some((staged) => staged.symbol === item.symbol);
-        return matches && unique && !alreadyAdded;
-      })
-      .slice(0, 6);
+    return this.symbolSuggestions.filter((item) => !this.isAlreadyAdded(item.symbol));
+  }
+
+  /** Name of the symbol list searched by the Add stocks dialog. */
+  get symbolListLabel(): string {
+    return this.selectedMarket === 'India' ? 'NSE' : 'US';
   }
 
   selectWatchlist(id: string): void {
@@ -798,7 +801,7 @@ export class WatchlistsComponent implements OnDestroy {
     this.stockSearchText = '';
     this.stagedStocks = [];
     this.addStocksMessage = '';
-    this.resetNseSearch();
+    this.resetSymbolSearch();
     this.addStocksDialogOpen = true;
   }
 
@@ -808,16 +811,14 @@ export class WatchlistsComponent implements OnDestroy {
     }
     this.addStocksDialogOpen = false;
     this.addStocksMessage = '';
-    this.resetNseSearch();
+    this.resetSymbolSearch();
   }
 
   updateStockSearch(event: Event): void {
     if (event.target instanceof HTMLInputElement) {
       this.stockSearchText = event.target.value;
       this.addStocksMessage = '';
-      if (this.selectedMarket === 'India') {
-        this.nseSearchText$.next(this.stockSearchText);
-      }
+      this.symbolSearchText$.next(this.stockSearchText);
     }
   }
 
@@ -827,7 +828,7 @@ export class WatchlistsComponent implements OnDestroy {
     if (!query) {
       return;
     }
-    const match = this.nseSuggestions.find((item) => item.symbol.toLowerCase() === query.toLowerCase())
+    const match = this.symbolSuggestions.find((item) => item.symbol.toLowerCase() === query.toLowerCase())
       ?? this.watchlists.flatMap((watchlist) => watchlist.items)
       .find((item) => item.symbol.toLowerCase() === query.toLowerCase()
         || item.name.toLowerCase() === query.toLowerCase());
@@ -836,7 +837,7 @@ export class WatchlistsComponent implements OnDestroy {
       return;
     }
     const symbol = query.toUpperCase().replace(/\s+/g, '');
-    if (!/^[A-Z0-9.&-]{1,15}$/.test(symbol)) {
+    if (!/^[A-Z0-9.&$-]{1,15}$/.test(symbol)) {
       this.addStocksMessage = 'Enter a ticker symbol or choose a matching asset from the suggestions.';
       return;
     }
@@ -864,7 +865,7 @@ export class WatchlistsComponent implements OnDestroy {
     this.stagedStocks = [...this.stagedStocks, { ...item }];
     this.stockSearchText = '';
     this.addStocksMessage = '';
-    this.resetNseSearch();
+    this.resetSymbolSearch();
   }
 
   /** True when the symbol is in the open watchlist or the pending list (India ignores a .NS/.BO suffix). */
@@ -878,44 +879,50 @@ export class WatchlistsComponent implements OnDestroy {
   }
 
   /**
-   * India type-ahead: debounces the search box, calls GET /api/india/nse/symbols, and drops any response
+   * Type-ahead: debounces the search box, calls GET /api/india/nse/symbols (India) or /api/us/nasdaq/symbols (US),
+   * and drops any response
    * that is no longer for the current text (switchMap also cancels the superseded request).
    */
-  private watchNseSearch(): Subscription {
-    return this.nseSearchText$.pipe(
+  private watchSymbolSearch(): Subscription {
+    return this.symbolSearchText$.pipe(
       map((text) => text.trim()),
-      debounceTime(NSE_SEARCH_DEBOUNCE_MS),
+      debounceTime(SYMBOL_SEARCH_DEBOUNCE_MS),
       distinctUntilChanged(),
       switchMap((query) => {
         if (!query) {
           return of({ query, items: [] as WatchlistItem[], error: '' });
         }
-        this.isSearchingNse = true;
-        return this.nseSymbolsService.search(query, NSE_SUGGESTION_LIMIT).pipe(
-          map((symbols) => ({ query, items: symbols.map((symbol) => this.nseSymbolToItem(symbol)), error: '' })),
+        this.isSearchingSymbols = true;
+        const search: Observable<WatchlistItem[]> = this.selectedMarket === 'India'
+          ? this.nseSymbolsService.search(query, SYMBOL_SUGGESTION_LIMIT)
+            .pipe(map((symbols) => symbols.map((symbol) => this.nseSymbolToItem(symbol))))
+          : this.usSymbolsService.search(query, SYMBOL_SUGGESTION_LIMIT)
+            .pipe(map((symbols) => symbols.map((symbol) => this.usSymbolToItem(symbol))));
+        return search.pipe(
+          map((items) => ({ query, items, error: '' })),
           catchError((error: unknown) => {
-            console.error(`[NSE] Symbol search failed for "${query}"`, error);
-            return of({ query, items: [] as WatchlistItem[], error: this.nseSearchErrorMessage(error) });
+            console.error(`[${this.symbolListLabel} symbols] Search failed for "${query}"`, error);
+            return of({ query, items: [] as WatchlistItem[], error: this.symbolSearchErrorMessage(error) });
           }),
         );
       }),
     ).subscribe(({ query, items, error }) => {
-      this.isSearchingNse = false;
+      this.isSearchingSymbols = false;
       if (query !== this.stockSearchText.trim()) {
         return;
       }
-      this.nseSuggestions = items;
-      this.nseSearchMessage = error;
-      this.nseSearchedQuery = error ? '' : query;
+      this.symbolSuggestions = items;
+      this.symbolSearchMessage = error;
+      this.symbolSearchedQuery = error ? '' : query;
     });
   }
 
-  private resetNseSearch(): void {
-    this.nseSuggestions = [];
-    this.nseSearchMessage = '';
-    this.nseSearchedQuery = '';
-    this.isSearchingNse = false;
-    this.nseSearchText$.next('');
+  private resetSymbolSearch(): void {
+    this.symbolSuggestions = [];
+    this.symbolSearchMessage = '';
+    this.symbolSearchedQuery = '';
+    this.isSearchingSymbols = false;
+    this.symbolSearchText$.next('');
   }
 
   private nseSymbolToItem(symbol: NseSymbol): WatchlistItem {
@@ -931,17 +938,27 @@ export class WatchlistsComponent implements OnDestroy {
     };
   }
 
-  private nseSearchErrorMessage(error: unknown): string {
+  private usSymbolToItem(symbol: UsSymbol): WatchlistItem {
+    return {
+      symbol: symbol.symbol,
+      name: symbol.name?.trim() || symbol.symbol,
+      assetType: symbol.type === 'ETF' ? 'ETF' : 'Stock',
+    };
+  }
+
+  private symbolSearchErrorMessage(error: unknown): string {
+    const label = this.symbolListLabel;
     if (error instanceof HttpErrorResponse) {
       if (error.status === 0) {
-        return 'Could not reach the market data service (news-scheduler-svc on port 8082) to search NSE symbols.';
+        return `Could not reach the market data service (news-scheduler-svc on port 8082) to search ${label} symbols.`;
       }
       if (error.status === 503) {
-        return 'The NSE symbol list has not been downloaded yet. Run POST /api/india/nse/sync on news-scheduler-svc.';
+        const syncPath = this.selectedMarket === 'India' ? '/api/india/nse/sync' : '/api/us/nasdaq/sync';
+        return `The ${label} symbol list has not been downloaded yet. Run POST ${syncPath} on news-scheduler-svc.`;
       }
-      return `NSE symbol search failed (HTTP ${error.status}). You can still type a ticker and press Add.`;
+      return `${label} symbol search failed (HTTP ${error.status}). You can still type a ticker and press Add.`;
     }
-    return 'NSE symbol search failed. You can still type a ticker and press Add.';
+    return `${label} symbol search failed. You can still type a ticker and press Add.`;
   }
 
   removeStagedStock(index: number): void {
@@ -996,39 +1013,25 @@ export class WatchlistsComponent implements OnDestroy {
     if (this.isFavoritesList || this.stagedStocks.length === 0 || this.isSavingStocks) {
       return;
     }
-    if (this.selectedMarket === 'India') {
-      this.saveIndiaStagedStocks();
-      return;
-    }
-    const updatedWatchlist: WatchlistGroup = {
-      ...this.selectedWatchlist,
-      items: [...this.selectedWatchlist.items, ...this.stagedStocks],
-    };
-    const updatedWatchlists = this.watchlists.map((watchlist) =>
-      watchlist.id === updatedWatchlist.id ? updatedWatchlist : watchlist,
-    );
-    this.watchlists = updatedWatchlists;
-    const addedCount = this.stagedStocks.length;
-    this.currentPage = Math.ceil(updatedWatchlist.items.length / this.pageSize);
-    this.stagedStocks = [];
-    this.addStocksDialogOpen = false;
-    this.statusMessage = `${addedCount} ${addedCount === 1 ? 'stock' : 'stocks'} added to ${updatedWatchlist.name} for this session only.`;
+    this.saveStagedStocksToServer();
   }
 
   /**
-   * India: saves the pending stocks to the selected watchlist in the database (all or none), then adds the
-   * saved rows to the table and loads their Tapetide profiles. On failure the dialog stays open with the list.
+   * Saves the pending stocks to the selected watchlist in the database (all or none), then adds the saved rows
+   * to the table and loads their FMP (US) or Tapetide (India) profiles. On failure the dialog stays open.
    */
-  private saveIndiaStagedStocks(): void {
+  private saveStagedStocksToServer(): void {
     const watchlist = this.selectedWatchlist;
     if (!/^\d+$/.test(watchlist.id)) {
       this.addStocksMessage = 'This watchlist exists only in this session, so stocks cannot be saved to it.';
       return;
     }
-    const items = this.stagedStocks.map((stock) => ({ symbol: stock.symbol, name: stock.name }));
+    // The name column holds 160 characters; a few US security names are longer.
+    const items = this.stagedStocks.map((stock) => ({ symbol: stock.symbol, name: stock.name.slice(0, 160) }));
+    const market = this.selectedMarket;
     this.isSavingStocks = true;
     this.addStocksMessage = '';
-    this.watchlistsService.addIndiaItems(watchlist.id, items, environment.currentUserId).subscribe({
+    this.watchlistsService.addItems(market, watchlist.id, items, environment.currentUserId).subscribe({
       next: (saved) => {
         this.isSavingStocks = false;
         this.watchlists = this.watchlists.map((list) => list.id !== watchlist.id ? list : {
@@ -1037,15 +1040,15 @@ export class WatchlistsComponent implements OnDestroy {
         });
         this.stagedStocks = [];
         this.addStocksDialogOpen = false;
-        this.resetNseSearch();
+        this.resetSymbolSearch();
         if (this.selectedWatchlistId === watchlist.id) {
           this.currentPage = Math.ceil(this.selectedWatchlist.items.length / this.pageSize);
         }
         this.statusMessage = `${saved.length} ${saved.length === 1 ? 'stock' : 'stocks'} saved to ${watchlist.name}.`;
-        this.loadIndiaProfiles();
+        this.loadFmpProfiles();
       },
       error: (error: unknown) => {
-        console.error(`[Watchlists] Failed to save stocks to India watchlist ${watchlist.id}`, error);
+        console.error(`[Watchlists] Failed to save stocks to ${market} watchlist ${watchlist.id}`, error);
         this.isSavingStocks = false;
         this.addStocksMessage = this.saveStocksErrorMessage(error);
       },
@@ -1091,6 +1094,50 @@ export class WatchlistsComponent implements OnDestroy {
       this.currentPage = 1;
     }
     this.persistFavorites();
+  }
+
+  /** Delete is offered only on saved watchlists (not Favorites, which mixes lists, nor session-only lists). */
+  get canDeleteStocks(): boolean {
+    return !this.isFavoritesList && /^\d+$/.test(this.selectedWatchlist.id);
+  }
+
+  /** Asks for confirmation, deletes the stock from the selected watchlist in the database, then from the table. */
+  removeStock(item: WatchlistItem): void {
+    const watchlist = this.selectedWatchlist;
+    if (!this.canDeleteStocks || this.deletingSymbols.has(item.symbol)
+      || !window.confirm(`Remove ${item.symbol} from ${watchlist.name}?`)) {
+      return;
+    }
+    this.deletingSymbols.add(item.symbol);
+    const market = this.selectedMarket;
+    this.watchlistsService.removeItem(market, watchlist.id, item.symbol, environment.currentUserId).subscribe({
+      next: () => {
+        this.deletingSymbols.delete(item.symbol);
+        this.dropItemFromWatchlist(watchlist.id, item.symbol);
+        this.statusMessage = `${item.symbol} removed from ${watchlist.name}.`;
+      },
+      error: (error: unknown) => {
+        console.error(`[Watchlists] Failed to remove ${item.symbol} from ${market} watchlist ${watchlist.id}`, error);
+        this.deletingSymbols.delete(item.symbol);
+        if (error instanceof HttpErrorResponse && error.status === 404) {
+          // Already gone on the server (e.g. deleted in another tab): match the table to the database.
+          this.dropItemFromWatchlist(watchlist.id, item.symbol);
+          this.statusMessage = `${item.symbol} was no longer in ${watchlist.name}; the table has been updated.`;
+          return;
+        }
+        this.statusMessage = error instanceof HttpErrorResponse && error.status === 0
+          ? `Could not reach the watchlist service (port 8081). ${item.symbol} was not removed.`
+          : `Removing ${item.symbol} failed. It is still in ${watchlist.name}.`;
+      },
+    });
+  }
+
+  private dropItemFromWatchlist(watchlistId: string, symbol: string): void {
+    this.watchlists = this.watchlists.map((list) => list.id !== watchlistId ? list : {
+      ...list,
+      items: list.items.filter((current) => current.symbol !== symbol),
+    });
+    this.currentPage = Math.min(this.currentPage, Math.max(1, this.totalPages));
   }
 
   openDescriptionDialog(item: WatchlistItem): void {
@@ -1432,7 +1479,7 @@ export class WatchlistsComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     this.indiaProfileSubscriptions.unsubscribe();
-    this.nseSearchSubscription.unsubscribe();
+    this.symbolSearchSubscription.unsubscribe();
   }
 
   /**

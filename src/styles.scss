@@ -69,6 +69,9 @@
   .star-symbol-button { border:0; background:transparent; color:var(--muted); font-size:1.2rem; }
   .star-symbol-button.is-favorite { color:var(--accent); }
   .symbol-cell { display:inline-flex; align-items:center; gap:8px; }
+  .delete-symbol-button { display:inline-flex; align-items:center; padding:2px; border:0; border-radius:4px; background:transparent; color:var(--muted); line-height:1; }
+  .delete-symbol-button:hover:not(:disabled) { color:var(--negative); background:#eb707b1c; }
+  .delete-symbol-button:disabled { cursor:progress; opacity:.4; }
   .star-symbol-button { padding:0; line-height:1; }
   .list-summary { display:flex; align-items:baseline; gap:6px; margin-left:auto; color:var(--muted); font-size:.78rem; }
   .list-summary strong { color:var(--text); font-size:1.1rem; }

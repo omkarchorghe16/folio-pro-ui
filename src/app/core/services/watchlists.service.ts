@@ -49,12 +49,23 @@ export class WatchlistsService {
   }
 
   /**
-   * Saves stocks into an India watchlist (watchlist_items_india) owned by the user. All or none: the backend
-   * answers 400 if a symbol is already in the list, 404 if the list is not an India list of this user.
+   * Saves stocks into a watchlist owned by the user (watchlist_items_usa or watchlist_items_india). All or none:
+   * the backend answers 400 if a symbol is already in the list, 404 if the list is not this market's or user's.
    */
-  addIndiaItems(watchlistId: string | number, items: NewWatchlistItem[], userId: number): Observable<ApiWatchlistItem[]> {
+  addItems(market: WatchlistMarket, watchlistId: string | number, items: NewWatchlistItem[],
+           userId: number): Observable<ApiWatchlistItem[]> {
     const params = new HttpParams().set('userId', userId);
-    return this.http.post<ApiWatchlistItem[]>(`${this.watchlistsUrl}/india/${watchlistId}/items`, { items }, { params });
+    return this.http.post<ApiWatchlistItem[]>(`${this.itemsUrl(market, watchlistId)}`, { items }, { params });
+  }
+
+  /** Deletes one stock from a watchlist of this market owned by the user. 404 if it is not there. */
+  removeItem(market: WatchlistMarket, watchlistId: string | number, symbol: string, userId: number): Observable<void> {
+    const params = new HttpParams().set('userId', userId);
+    return this.http.delete<void>(`${this.itemsUrl(market, watchlistId)}/${encodeURIComponent(symbol)}`, { params });
+  }
+
+  private itemsUrl(market: WatchlistMarket, watchlistId: string | number): string {
+    return `${this.watchlistsUrl}/${market === 'US' ? 'us' : 'india'}/${watchlistId}/items`;
   }
 
   /** Stars or un-stars a USA or India watchlist for the given user. */

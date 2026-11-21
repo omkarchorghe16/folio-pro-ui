@@ -31,11 +31,14 @@ backend call acts as user `1`. Nothing on any screen is investment advice.
 - **Company description** column: *View* opens the description, plus research links that open in a
   new tab — US: Yahoo, TradingView, Finviz, Google Finance, IMG (Google search); India: TradingView,
   Screener, Finology, IMG.
-- **＋ Add stocks** (next to the dropdown) opens a dialog to pick stocks. On the India page, typing
-  searches NSE tickers and company names (`GET /api/india/nse/symbols`, 8082); picking a match puts it
-  under *Stocks to add*. **Save** writes them to the selected watchlist for user 1
-  (`POST /api/v1/watchlists/india/{id}/items?userId=1` → `watchlist_items_india`, all or none). The US
-  page suggests symbols from the loaded watchlists and keeps added stocks for the session only.
+- **＋ Add stocks** (next to the dropdown) opens a dialog to pick stocks. Typing searches tickers and names:
+  NSE on the India page (`GET /api/india/nse/symbols`), the US symbol directory on the US page
+  (`GET /api/us/nasdaq/symbols`), both on 8082. Picking a match puts it under *Stocks to add*; **Save**
+  writes them to the selected watchlist for user 1, all or none
+  (`POST /api/v1/watchlists/{us|india}/{id}/items?userId=1` → `watchlist_items_usa` / `watchlist_items_india`).
+- The trash icon next to a ticker's star removes that stock from the selected watchlist in the database
+  after a confirm (`DELETE /api/v1/watchlists/{us|india}/{id}/items/{symbol}?userId=1`). It is hidden on
+  the Favorites view.
 - **Import CSV** creates watchlists for the current market; **Export CSV** downloads the current list.
 
 ## Running locally
@@ -50,7 +53,7 @@ The watchlist pages need all three services:
 
 Both backends use the shared PostgreSQL database `folio_pro`. Open http://localhost:4200.
 
-`npm start` runs `ng serve --proxy-config proxy.conf.json`. The proxy forwards `/api/fmp` and
+`npm start` runs `ng serve --proxy-config proxy.conf.json`. The proxy forwards `/api/fmp`, `/api/us` and
 `/api/india` to port 8082; watchlist calls go straight to `environment.apiBaseUrl`
 (`http://localhost:8081`).
 
@@ -84,10 +87,11 @@ src/
       fmp-profiles.service.ts                  US profiles via /api/fmp (8082)
       tapetide-profile.service.ts              India profiles via /api/india (8082)
       nse-symbols.service.ts                   NSE ticker/name search via /api/india (8082)
+      us-symbols.service.ts                    US ticker/name search via /api/us (8082)
       wealth.service.ts                        mock data for the other screens
     features/             one standalone component per screen
     shared/components/    ShellComponent (top nav + rail), auth shell, metric card
-proxy.conf.json           dev-server proxy for /api/fmp and /api/india
+proxy.conf.json           dev-server proxy for /api/fmp, /api/us and /api/india
 docs/architecture.md      architecture plan and what is built so far
 WealthManagement.drawio   system diagram
 ```
