@@ -41,6 +41,9 @@ is a new 8082 path).
 - India page: ETF rows have a soft violet tint and an **ETF** tag, and are always listed after the stocks
   (the column sort applies within each group). ETFs are recognised from NSE's ETF list
   (`GET /api/india/nse/symbols?type=ETF`, loaded once), a Tapetide stock type of ETF, or an ETF-style ticker.
+- US page: ETF rows get the same violet tint and **ETF** tag but keep their place in the sort. ETFs are
+  recognised from the US symbol directory's ETF list (`GET /api/us/nasdaq/symbols?type=ETF`, loaded once) or
+  FMP's `isEtf` profile flag, which also sets *Asset type* to ETF.
 - Every column header sorts (▲ ascending, ▼ descending, off). Each watchlist opens sorted by market
   cap, largest first. Market cap is shown as T / B / M; Change % has two decimals.
 - The **Name** column links to the company's own website (from the FMP or Tapetide profile, new tab);

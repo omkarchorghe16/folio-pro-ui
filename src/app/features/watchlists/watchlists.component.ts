@@ -537,6 +537,8 @@ export class WatchlistsComponent implements OnDestroy {
   readonly deletingSymbols = new Set<string>();
   /** India: bare NSE symbols of every listed ETF, loaded once from news-scheduler-svc. */
   private indiaEtfSymbols = new Set<string>();
+  /** US ETF tickers from the Nasdaq Trader directory, with '.' and '-' class separators both stored. */
+  private usEtfSymbols = new Set<string>();
   readonly currentUserId = environment.currentUserId;
   /** NSE (India) or US symbol-directory matches for the text in the Add stocks search box. */
   symbolSuggestions: WatchlistItem[] = [];
@@ -586,6 +588,8 @@ export class WatchlistsComponent implements OnDestroy {
     this.symbolSearchSubscription = this.watchSymbolSearch();
     if (this.selectedMarket === 'India') {
       this.loadIndiaEtfSymbols();
+    } else {
+      this.loadUsEtfSymbols();
     }
   }
 
@@ -642,12 +646,12 @@ export class WatchlistsComponent implements OnDestroy {
   }
 
   /**
-   * India only: true for ETFs. Uses NSE's ETF list, a Tapetide stock type of ETF, or (for tickers NSE no longer
-   * lists) an ETF-style ticker name.
+   * True for ETFs. India: NSE's ETF list, a Tapetide stock type of ETF, or (for tickers NSE no longer lists) an
+   * ETF-style ticker name. US: the Nasdaq Trader ETF list or FMP's isEtf flag (shown as Asset type ETF).
    */
   isEtf(item: WatchlistItem): boolean {
     if (this.selectedMarket !== 'India') {
-      return false;
+      return this.usEtfSymbols.has(item.symbol.toUpperCase()) || item.assetType?.toUpperCase() === 'ETF';
     }
     const symbol = this.indiaApiSymbol(item.symbol);
     return this.indiaEtfSymbols.has(symbol)
@@ -663,6 +667,22 @@ export class WatchlistsComponent implements OnDestroy {
       error: (error: unknown) => {
         console.error('[NSE] Could not load the ETF list; ETF rows are detected from ticker names only', error);
         this.statusMessage = 'Could not load the NSE ETF list, so some ETF rows may not be marked or moved to the bottom.';
+      },
+    });
+  }
+
+  private loadUsEtfSymbols(): void {
+    this.usSymbolsService.listEtfs().subscribe({
+      next: (etfs) => {
+        // The directory writes share classes as BRK.B; watchlists may hold BRK-B, so keep both spellings.
+        this.usEtfSymbols = new Set(etfs.flatMap((etf) => {
+          const symbol = etf.symbol.toUpperCase();
+          return [symbol, symbol.replace(/\./g, '-')];
+        }));
+      },
+      error: (error: unknown) => {
+        console.error('[US symbols] Could not load the ETF list; ETF rows are detected from FMP profiles only', error);
+        this.statusMessage = 'Could not load the US ETF list, so some ETF rows may not be marked.';
       },
     });
   }
@@ -1816,6 +1836,7 @@ export class WatchlistsComponent implements OnDestroy {
       change: changePercentage ?? item.change,
       sector: sector ?? item.sector,
       volume: volume === undefined ? item.volume : String(volume),
+      assetType: profile.etf === true ? 'ETF' : item.assetType,
       metrics,
       profileData,
     };

@@ -24,6 +24,11 @@ export class UsSymbolsService {
 
   constructor(private readonly http: HttpClient) {}
 
+  /** Every US-listed ETF (several thousand symbols); used to mark ETF rows on the US watchlist. */
+  listEtfs(): Observable<UsSymbol[]> {
+    return this.http.get<UsSymbol[]>(this.symbolsUrl, { params: new HttpParams().set('type', 'ETF') });
+  }
+
   search(query: string, limit = 20): Observable<UsSymbol[]> {
     const params = new HttpParams().set('query', query.trim()).set('limit', limit);
     return this.http.get<UsSymbol[]>(this.symbolsUrl, { params });
