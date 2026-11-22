@@ -1896,43 +1896,27 @@ export class WatchlistsComponent implements OnDestroy {
   }
 
   /**
-   * Downloads the selected watchlist from the backend in the import format (name in row 1, tickers below).
-   * Favorites and session-only lists are not stored on the server, so they are built here in the same format.
+   * Downloads every watchlist the user has in this market from the backend, in the import format: watchlist
+   * names in row 1, each list's ticker symbols in its column from row 2. Works the same from any selected list.
    */
   exportCsv(): void {
-    const watchlist = this.selectedWatchlist;
-    if (this.isFavoritesList || !/^\d+$/.test(watchlist.id)) {
-      this.exportCsvLocally();
-      return;
-    }
+    const market = this.selectedMarket;
     this.isExporting = true;
-    this.watchlistExportService.exportWatchlists(this.selectedMarket, environment.currentUserId, watchlist.id).subscribe({
+    this.watchlistExportService.exportWatchlists(market, environment.currentUserId).subscribe({
       next: ({ blob, fileName }) => {
         this.isExporting = false;
-        this.downloadFile(blob, fileName ?? `${this.selectedMarket.toLowerCase()}-${watchlist.id}.csv`);
-        this.statusMessage = `${watchlist.name} exported as CSV.`;
+        this.downloadFile(blob, fileName ?? `${market.toLowerCase()}-watchlists.csv`);
+        const count = this.watchlists.filter((watchlist) => /^\d+$/.test(watchlist.id)).length;
+        this.statusMessage = `Exported all ${count} ${market} ${count === 1 ? 'watchlist' : 'watchlists'} as CSV.`;
       },
       error: (error: unknown) => {
-        console.error(`[Watchlist CSV Export] Failed for watchlist ${watchlist.id}`, error);
+        console.error(`[Watchlist CSV Export] Failed for ${market} watchlists`, error);
         this.isExporting = false;
         this.statusMessage = error instanceof HttpErrorResponse && error.status === 0
           ? 'Could not reach the watchlist service (port 8081) to export the CSV.'
-          : error instanceof HttpErrorResponse && error.status === 404
-            ? `${watchlist.name} was not found on the server. Reload the page and try again.`
-            : 'Exporting the CSV failed. Check the backend logs.';
+          : 'Exporting the CSV failed. Check the backend logs.';
       },
     });
-  }
-
-  private exportCsvLocally(): void {
-    const records = [
-      [this.selectedWatchlist.name],
-      ...this.selectedWatchlist.items.map((item) => [item.symbol]),
-    ];
-    const csv = records.map((record) => record.map((value) => this.csvEscape(value)).join(',')).join('\r\n') + '\r\n';
-    this.downloadFile(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }),
-      `${this.selectedMarket.toLowerCase()}-${this.selectedWatchlist.id}.csv`);
-    this.statusMessage = `${this.selectedWatchlist.items.length} assets exported as CSV.`;
   }
 
   private downloadFile(blob: Blob, fileName: string): void {
@@ -2226,8 +2210,4 @@ export class WatchlistsComponent implements OnDestroy {
    * apostrophe so spreadsheets show it as plain text rather than a formula or hyperlink (the import removes it),
    * then RFC 4180 quoting is applied.
    */
-  private csvEscape(value: string): string {
-    const text = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
-    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-  }
 }

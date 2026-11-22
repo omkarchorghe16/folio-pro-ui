@@ -18,6 +18,16 @@ backend call acts as user `1`. Nothing on any screen is investment advice.
 | `/watchlists/us` | **US watchlist** (`/watchlists` redirects here) | live: invesment-management-svc + FMP via news-scheduler-svc |
 | `/watchlists/india` | **India watchlist** | live: invesment-management-svc + Tapetide via news-scheduler-svc |
 | `/profile`, `/settings` | Profile and settings | mock |
+| `/admin` | Run scheduled jobs and other backend calls on demand | real (8081, 8082) |
+
+### Admin page
+
+Opened from **Admin** in the right-hand rail. Each card runs one backend call and shows the HTTP status, time
+and response body. Scheduled jobs (all in news-scheduler-svc; invesment-management-svc has none): daily news
+digest (`POST /api/digest/run`, asks for confirmation), NSE symbol sync (`POST /api/india/nse/sync`), US symbol
+sync (`POST /api/us/nasdaq/sync`). Other actions: health checks for both services. To add a call, add an entry
+to `ADMIN_ACTIONS` in `src/app/core/models/admin-actions.ts` (and its path prefix to `proxy.conf.json` if it
+is a new 8082 path).
 
 ### Watchlist pages
 
@@ -41,7 +51,7 @@ backend call acts as user `1`. Nothing on any screen is investment advice.
 - The trash icon next to a ticker's star removes that stock from the selected watchlist in the database
   after a confirm (`DELETE /api/v1/watchlists/{us|india}/{id}/items/{symbol}?userId=1`). It is hidden on
   the Favorites view.
-- **Import CSV** adds to the current market: a column named like one of your existing watchlists adds its new symbols there (symbols already in it are skipped), and other columns create new watchlists. Nothing is deleted. **Export CSV** downloads the selected list in the same format (watchlist name in the first row, its ticker symbols in the rows below; cells that would start a spreadsheet formula, such as `=HYPERLINK(...)`, are written as plain text) from `GET /api/v1/watchlists/export?market=…&userId=1&watchlistId=…` (8081), so the file can be imported again.
+- **Import CSV** adds to the current market: a column named like one of your existing watchlists adds its new symbols there (symbols already in it are skipped), and other columns create new watchlists. Nothing is deleted. **Export CSV** downloads all of the user's watchlists for the current market, whichever list is selected, in the same format (every watchlist name in row 1, each list's ticker symbols in its column from row 2; cells that would start a spreadsheet formula, such as `=HYPERLINK(...)`, are written as plain text) from `GET /api/v1/watchlists/export?market=…&userId=1` (8081), so the file can be imported again.
 
 ## Running locally
 
@@ -55,7 +65,7 @@ The watchlist pages need all three services:
 
 Both backends use the shared PostgreSQL database `folio_pro`. Open http://localhost:4200.
 
-`npm start` runs `ng serve --proxy-config proxy.conf.json`. The proxy forwards `/api/fmp`, `/api/us` and
+`npm start` runs `ng serve --proxy-config proxy.conf.json`. The proxy forwards `/api/fmp`, `/api/us`, `/api/digest` and
 `/api/india` to port 8082; watchlist calls go straight to `environment.apiBaseUrl`
 (`http://localhost:8081`).
 
@@ -94,7 +104,7 @@ src/
       wealth.service.ts                        mock data for the other screens
     features/             one standalone component per screen
     shared/components/    ShellComponent (top nav + rail), auth shell, metric card
-proxy.conf.json           dev-server proxy for /api/fmp, /api/us and /api/india
+proxy.conf.json           dev-server proxy for /api/fmp, /api/us, /api/digest and /api/india
 docs/architecture.md      architecture plan and what is built so far
 WealthManagement.drawio   system diagram
 ```

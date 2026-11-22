@@ -6,7 +6,7 @@ import { environment } from '../../../environments/environment';
 
 export interface WatchlistCsvFile {
   blob: Blob;
-  /** From the server's Content-Disposition header, e.g. "india-top-picks.csv". */
+  /** From the server's Content-Disposition header, e.g. "india-watchlists.csv". */
   fileName: string | null;
 }
 

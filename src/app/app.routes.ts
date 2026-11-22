@@ -9,6 +9,7 @@ import { CryptoComponent } from './features/crypto/crypto.component';
 import { WatchlistsComponent } from './features/watchlists/watchlists.component';
 import { ProfileComponent } from './features/profile/profile.component';
 import { SettingsComponent } from './features/settings/settings.component';
+import { AdminComponent } from './features/admin/admin.component';
 
 export const routes: Routes = [
   { path: '', redirectTo: 'login', pathMatch: 'full' },
@@ -24,5 +25,6 @@ export const routes: Routes = [
   { path: 'watchlists/india', component: WatchlistsComponent, data: { market: 'India' }, title: 'India Watchlist' },
   { path: 'profile', component: ProfileComponent },
   { path: 'settings', component: SettingsComponent },
+  { path: 'admin', component: AdminComponent, title: 'Admin' },
   { path: '**', redirectTo: 'login' },
 ];
