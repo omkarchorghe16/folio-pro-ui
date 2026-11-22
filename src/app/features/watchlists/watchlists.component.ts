@@ -10,7 +10,12 @@ import { FmpProfile, FmpProfilesService } from '../../core/services/fmp-profiles
 import { NseSymbol, NseSymbolsService } from '../../core/services/nse-symbols.service';
 import { UsSymbol, UsSymbolsService } from '../../core/services/us-symbols.service';
 import { TapetideProfilePayload, TapetideProfileService } from '../../core/services/tapetide-profile.service';
-import { WatchlistImportMarket, WatchlistImportService } from '../../core/services/watchlist-import.service';
+import {
+  WatchlistImportMarket,
+  WatchlistImportResponse,
+  WatchlistImportService,
+} from '../../core/services/watchlist-import.service';
+import { WatchlistExportService } from '../../core/services/watchlist-export.service';
 import { WatchlistPageResponse, WatchlistsService } from '../../core/services/watchlists.service';
 import {
   WatchlistColumnPreferencesResponse,
@@ -99,7 +104,9 @@ const PERCENT_COLUMNS = new Set<string>([
               <button class="tool-button tone-teal" type="button" [disabled]="isImporting" (click)="fileInput.click()">
                 {{ isImporting ? 'Importing…' : 'Import CSV' }}
               </button>
-              <button class="tool-button tone-purple" type="button" (click)="exportCsv()">Export CSV</button>
+              <button class="tool-button tone-purple" type="button" [disabled]="isExporting" (click)="exportCsv()">
+                {{ isExporting ? 'Exporting…' : 'Export CSV' }}
+              </button>
               <button class="tool-button tone-amber" type="button" [attr.aria-expanded]="columnsEditorOpen"
                 aria-controls="columns-editor" (click)="openColumnEditor()">Edit columns</button>
             </div>
@@ -553,6 +560,7 @@ export class WatchlistsComponent implements OnDestroy {
   private columnPreferencesRequestId = 0;
   statusMessage = '';
   isImporting = false;
+  isExporting = false;
   isLoadingProfiles = false;
   isLoadingWatchlists = false;
   private watchlistRequestId = 0;
@@ -563,6 +571,7 @@ export class WatchlistsComponent implements OnDestroy {
   constructor(
     route: ActivatedRoute,
     private readonly watchlistImportService: WatchlistImportService,
+    private readonly watchlistExportService: WatchlistExportService,
     private readonly watchlistsService: WatchlistsService,
     private readonly fmpProfilesService: FmpProfilesService,
     private readonly tapetideProfileService: TapetideProfileService,
@@ -1886,19 +1895,53 @@ export class WatchlistsComponent implements OnDestroy {
     }
   }
 
+  /**
+   * Downloads the selected watchlist from the backend in the import format (name in row 1, tickers below).
+   * Favorites and session-only lists are not stored on the server, so they are built here in the same format.
+   */
   exportCsv(): void {
+    const watchlist = this.selectedWatchlist;
+    if (this.isFavoritesList || !/^\d+$/.test(watchlist.id)) {
+      this.exportCsvLocally();
+      return;
+    }
+    this.isExporting = true;
+    this.watchlistExportService.exportWatchlists(this.selectedMarket, environment.currentUserId, watchlist.id).subscribe({
+      next: ({ blob, fileName }) => {
+        this.isExporting = false;
+        this.downloadFile(blob, fileName ?? `${this.selectedMarket.toLowerCase()}-${watchlist.id}.csv`);
+        this.statusMessage = `${watchlist.name} exported as CSV.`;
+      },
+      error: (error: unknown) => {
+        console.error(`[Watchlist CSV Export] Failed for watchlist ${watchlist.id}`, error);
+        this.isExporting = false;
+        this.statusMessage = error instanceof HttpErrorResponse && error.status === 0
+          ? 'Could not reach the watchlist service (port 8081) to export the CSV.'
+          : error instanceof HttpErrorResponse && error.status === 404
+            ? `${watchlist.name} was not found on the server. Reload the page and try again.`
+            : 'Exporting the CSV failed. Check the backend logs.';
+      },
+    });
+  }
+
+  private exportCsvLocally(): void {
     const records = [
       [this.selectedWatchlist.name],
       ...this.selectedWatchlist.items.map((item) => [item.symbol]),
     ];
-    const csv = records.map((record) => record.map((value) => this.csvEscape(value)).join(',')).join('\r\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const csv = records.map((record) => record.map((value) => this.csvEscape(value)).join(',')).join('\r\n') + '\r\n';
+    this.downloadFile(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }),
+      `${this.selectedMarket.toLowerCase()}-${this.selectedWatchlist.id}.csv`);
+    this.statusMessage = `${this.selectedWatchlist.items.length} assets exported as CSV.`;
+  }
+
+  private downloadFile(blob: Blob, fileName: string): void {
+    const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `${this.selectedMarket.toLowerCase()}-${this.selectedWatchlist.id}.csv`;
+    anchor.download = fileName;
     anchor.click();
     URL.revokeObjectURL(url);
-    this.statusMessage = `${this.selectedWatchlist.items.length} assets exported as CSV.`;
   }
 
   importCsv(event: Event): void {
@@ -1937,7 +1980,7 @@ export class WatchlistsComponent implements OnDestroy {
             });
           } else {
             const names = response.watchlistNames.length ? ` Watchlists: ${response.watchlistNames.join(', ')}.` : '';
-            this.statusMessage = `Imported ${response.watchlistsCreated} watchlists and ${response.itemsCreated} symbols into ${market}.${names}`;
+            this.statusMessage = this.importSummaryMessage(response, market) + names;
             this.loadWatchlists(this.selectedMarket, true);
           }
           this.isImporting = false;
@@ -1959,6 +2002,22 @@ export class WatchlistsComponent implements OnDestroy {
         }
       },
     });
+  }
+
+  /** For example: "Imported into USA: 1 new watchlist, 1 existing watchlist updated; 3 symbols added, 2 already present." */
+  private importSummaryMessage(response: WatchlistImportResponse, market: WatchlistImportMarket): string {
+    const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
+    const updated = response.watchlistsUpdated ?? 0;
+    const skipped = response.itemsSkipped ?? 0;
+    const watchlistParts = [`${plural(response.watchlistsCreated, 'new watchlist')}`];
+    if (updated > 0) {
+      watchlistParts.push(`${plural(updated, 'existing watchlist')} updated`);
+    }
+    const symbolParts = [`${plural(response.itemsCreated, 'symbol')} added`];
+    if (skipped > 0) {
+      symbolParts.push(`${skipped} already present`);
+    }
+    return `Imported into ${market}: ${watchlistParts.join(', ')}; ${symbolParts.join(', ')}.`;
   }
 
   private importErrorMessage(error: unknown): string {
@@ -2162,7 +2221,13 @@ export class WatchlistsComponent implements OnDestroy {
     }));
   }
 
+  /**
+   * Same rules as the server export: a cell starting with =, +, -, @, tab or carriage return gets a leading
+   * apostrophe so spreadsheets show it as plain text rather than a formula or hyperlink (the import removes it),
+   * then RFC 4180 quoting is applied.
+   */
   private csvEscape(value: string): string {
-    return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+    const text = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   }
 }

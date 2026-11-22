@@ -12,10 +12,23 @@ import { environment } from '../../../environments/environment';
 
 export type WatchlistImportMarket = 'USA' | 'India';
 
+/**
+ * Imports only add: CSV columns named like one of the user's existing watchlists in the same market
+ * append their new symbols to it (symbols already present are skipped); other columns create new watchlists.
+ */
 export interface WatchlistImportResponse {
   watchlistsCreated: number;
+  /** Existing watchlists that received symbols. Optional so older backends still parse. */
+  watchlistsUpdated?: number;
+  /** Newly added symbols. */
   itemsCreated: number;
+  /** Symbols already in their watchlist, so not added again. Optional so older backends still parse. */
+  itemsSkipped?: number;
   watchlistNames: string[];
+}
+
+function isOptionalInteger(value: unknown): boolean {
+  return value === undefined || Number.isInteger(value);
 }
 
 function isWatchlistImportResponse(value: unknown): value is WatchlistImportResponse {
@@ -24,7 +37,9 @@ function isWatchlistImportResponse(value: unknown): value is WatchlistImportResp
   }
   const response = value as Record<string, unknown>;
   return Number.isInteger(response['watchlistsCreated'])
+    && isOptionalInteger(response['watchlistsUpdated'])
     && Number.isInteger(response['itemsCreated'])
+    && isOptionalInteger(response['itemsSkipped'])
     && Array.isArray(response['watchlistNames'])
     && response['watchlistNames'].every((name) => typeof name === 'string');
 }

@@ -41,7 +41,7 @@ backend call acts as user `1`. Nothing on any screen is investment advice.
 - The trash icon next to a ticker's star removes that stock from the selected watchlist in the database
   after a confirm (`DELETE /api/v1/watchlists/{us|india}/{id}/items/{symbol}?userId=1`). It is hidden on
   the Favorites view.
-- **Import CSV** creates watchlists for the current market; **Export CSV** downloads the current list.
+- **Import CSV** adds to the current market: a column named like one of your existing watchlists adds its new symbols there (symbols already in it are skipped), and other columns create new watchlists. Nothing is deleted. **Export CSV** downloads the selected list in the same format (watchlist name in the first row, its ticker symbols in the rows below; cells that would start a spreadsheet formula, such as `=HYPERLINK(...)`, are written as plain text) from `GET /api/v1/watchlists/export?market=…&userId=1&watchlistId=…` (8081), so the file can be imported again.
 
 ## Running locally
 
@@ -85,6 +85,7 @@ src/
     core/services/
       watchlists.service.ts                    list watchlists, star/un-star (8081)
       watchlist-import.service.ts              CSV import (8081)
+      watchlist-export.service.ts              CSV export (8081)
       watchlist-column-preferences.service.ts  saved table columns (8081)
       fmp-profiles.service.ts                  US profiles via /api/fmp (8082)
       tapetide-profile.service.ts              India profiles via /api/india (8082)
