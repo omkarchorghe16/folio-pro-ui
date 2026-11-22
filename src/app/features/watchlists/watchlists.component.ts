@@ -16,7 +16,7 @@ import {
   WatchlistImportService,
 } from '../../core/services/watchlist-import.service';
 import { WatchlistExportService } from '../../core/services/watchlist-export.service';
-import { WatchlistPageResponse, WatchlistsService } from '../../core/services/watchlists.service';
+import { ApiWatchlist, WatchlistsService } from '../../core/services/watchlists.service';
 import {
   WatchlistColumnPreferencesResponse,
   WatchlistColumnPreferencesService,
@@ -55,6 +55,10 @@ const INDIA_RESEARCH_SITES: readonly ResearchSite[] = [
   { label: 'FIN', name: 'Finology', urlTemplate: 'https://ticker.finology.in/company/{symbol}', tone: 'tone-amber' },
   { label: 'IMG', name: 'Google image search', urlTemplate: 'https://www.google.com/search?q={symbol}+business+products+services+images+photos', tone: 'tone-pink' },
 ];
+/** India ETF rows: the same links with ETF Screen in place of Finology (FIN), which covers companies only. */
+const INDIA_ETF_RESEARCH_SITES: readonly ResearchSite[] = INDIA_RESEARCH_SITES.map((site) => site.name === 'Finology'
+  ? { label: 'ETF', name: 'ETF Screen', urlTemplate: 'https://etfscreen.in/etf/{symbol}', tone: 'tone-purple' }
+  : site);
 const US_RESEARCH_SITES: readonly ResearchSite[] = [
   { label: 'Yahoo', name: 'Yahoo Finance', urlTemplate: 'https://finance.yahoo.com/quote/{symbol}/', tone: 'tone-purple' },
   { label: 'TV', name: 'TradingView', urlTemplate: 'https://www.tradingview.com/symbols/NASDAQ-{symbol}/', tone: 'tone-teal' },
@@ -67,6 +71,11 @@ const INDIA_PROFILE_CONCURRENCY = 4;
 /** "Add stocks" type-ahead (NSE on India, Nasdaq Trader on US): wait this long after the last keystroke, then ask for this many matches. */
 const SYMBOL_SEARCH_DEBOUNCE_MS = 250;
 const SYMBOL_SUGGESTION_LIMIT = 20;
+/**
+ * Fallback for India tickers missing from NSE's ETF list (old or renamed symbols): ends in ETF or BEES, or starts
+ * with SETF (AXISBNKETF, NIFTYBEES, SETFGOLD). Anchored so stocks such as JETFREIGHT are not caught.
+ */
+const INDIA_ETF_SYMBOL_PATTERN = /(ETF|BEES)$|^SETF/;
 /** Tapetide reports money in ₹ crore; 1 crore = 10,000,000 rupees. */
 const RUPEES_PER_CRORE = 1e7;
 /** Money columns stored in full currency units and shown as T / B / M (e.g. ₹12.40T). */
@@ -336,7 +345,7 @@ const PERCENT_COLUMNS = new Set<string>([
                 </tr>
               </thead>
               <tbody>
-                <tr *ngFor="let item of paginatedItems">
+                <tr *ngFor="let item of sortedItems" [class.etf-row]="isEtf(item)">
                   <td *ngFor="let column of visibleColumns" [ngSwitch]="column.key">
                     <ng-container *ngSwitchCase="'name'">
                       <a *ngIf="companyWebsite(item) as website; else plainName" class="company-link" [href]="website"
@@ -346,6 +355,7 @@ const PERCENT_COLUMNS = new Set<string>([
                     </ng-container>
                     <span *ngSwitchCase="'symbol'" class="symbol-cell">
                       <strong>{{ item.symbol }}</strong>
+                      <span class="etf-tag" *ngIf="isEtf(item)" title="Exchange-traded fund">ETF</span>
                       <button type="button" class="star-symbol-button"
                         [class.is-favorite]="isFavoriteSymbol(item)"
                         [attr.aria-pressed]="isFavoriteSymbol(item)"
@@ -374,7 +384,7 @@ const PERCENT_COLUMNS = new Set<string>([
                         [disabled]="!item.profileData?.['description']"
                         [attr.aria-label]="'View description for ' + item.name"
                         (click)="openDescriptionDialog(item)">View</button>
-                      <a *ngFor="let site of researchSites" class="description-view-button research-link" [ngClass]="site.tone"
+                      <a *ngFor="let site of researchSitesFor(item)" class="description-view-button research-link" [ngClass]="site.tone"
                         [href]="researchUrl(site, item)" target="_blank" rel="noopener noreferrer"
                         [title]="'Open ' + item.symbol + ' on ' + site.name"
                         [attr.aria-label]="'Open ' + item.symbol + ' on ' + site.name + ' in a new tab'">{{ site.label }}</a>
@@ -382,7 +392,7 @@ const PERCENT_COLUMNS = new Set<string>([
                     <span *ngSwitchDefault>{{ formatCell(item, column.key) }}</span>
                   </td>
                 </tr>
-                <tr *ngIf="paginatedItems.length === 0">
+                <tr *ngIf="sortedItems.length === 0">
                   <td [attr.colspan]="visibleColumns.length" class="empty-state">
                     {{ isLoadingWatchlists ? 'Loading watchlist items…' : 'No assets in this watchlist.' }}
                   </td>
@@ -391,21 +401,12 @@ const PERCENT_COLUMNS = new Set<string>([
             </table>
           </div>
 
-          <div class="pagination" aria-label="Watchlist pagination">
-            <span aria-live="polite">Showing {{ startIndex + 1 }}–{{ endIndex }} of {{ selectedWatchlist.items.length }}</span>
-            <div class="pagination-actions">
-              <button type="button" (click)="previousPage()" [disabled]="currentPage === 1" aria-label="Previous page">Previous</button>
-              <span>Page {{ currentPage }} of {{ totalPages }}</span>
-              <button type="button" (click)="nextPage()" [disabled]="currentPage === totalPages" aria-label="Next page">Next</button>
-            </div>
-          </div>
         </section>
       </div>
     </app-shell>
   `,
 })
 export class WatchlistsComponent implements OnDestroy {
-  readonly pageSize = 15;
   readonly availableColumns: WatchlistColumn[] = [
     { key: 'symbol', label: 'Symbol', group: 'Overview' },
     { key: 'name', label: 'Asset name', group: 'Overview' },
@@ -420,11 +421,11 @@ export class WatchlistsComponent implements OnDestroy {
     { key: 'previousClose', label: 'Previous close', group: 'Market data' },
     { key: 'dayHigh', label: 'Day high', group: 'Market data' },
     { key: 'dayLow', label: 'Day low', group: 'Market data' },
-    { key: 'marketCap', label: 'Market capitalization', group: 'Market data' },
+    { key: 'marketCap', label: 'Market Cap', group: 'Market data' },
     { key: 'changeAmount', label: 'Price change', group: 'Market data' },
     { key: 'averageVolume', label: 'Average volume', group: 'Market data' },
     { key: 'relativeVolume', label: 'Relative volume', group: 'Market data' },
-    { key: 'peRatio', label: 'P/E ratio (TTM)', group: 'Fundamentals' },
+    { key: 'peRatio', label: 'P/E', group: 'Fundamentals' },
     { key: 'forwardPE', label: 'Forward P/E', group: 'Fundamentals' },
     { key: 'eps', label: 'EPS (TTM)', group: 'Fundamentals' },
     { key: 'pegRatio', label: 'PEG ratio', group: 'Fundamentals' },
@@ -525,7 +526,6 @@ export class WatchlistsComponent implements OnDestroy {
   selectedMarket: WatchlistMarket = 'US';
   selectedWatchlistId = '';
   watchlistDropdownOpen = false;
-  currentPage = 1;
   columnsEditorOpen = false;
   descriptionDialogItem: WatchlistItem | null = null;
   addStocksDialogOpen = false;
@@ -535,6 +535,8 @@ export class WatchlistsComponent implements OnDestroy {
   isSavingStocks = false;
   /** India stocks with a delete request in flight, so a double click cannot send two deletes. */
   readonly deletingSymbols = new Set<string>();
+  /** India: bare NSE symbols of every listed ETF, loaded once from news-scheduler-svc. */
+  private indiaEtfSymbols = new Set<string>();
   readonly currentUserId = environment.currentUserId;
   /** NSE (India) or US symbol-directory matches for the text in the Add stocks search box. */
   symbolSuggestions: WatchlistItem[] = [];
@@ -564,8 +566,6 @@ export class WatchlistsComponent implements OnDestroy {
   isLoadingProfiles = false;
   isLoadingWatchlists = false;
   private watchlistRequestId = 0;
-  /** The backend caps page size at 100; the dropdown has no paging, so every page is fetched and merged. */
-  private readonly watchlistPageSize = 100;
   readonly favoritesListId = FAVORITES_LIST_ID;
 
   constructor(
@@ -584,6 +584,9 @@ export class WatchlistsComponent implements OnDestroy {
     this.selectedMarket = route.snapshot.data['market'] === 'India' ? 'India' : 'US';
     this.loadWatchlists(this.selectedMarket);
     this.symbolSearchSubscription = this.watchSymbolSearch();
+    if (this.selectedMarket === 'India') {
+      this.loadIndiaEtfSymbols();
+    }
   }
 
   get selectedWatchlist(): WatchlistGroup {
@@ -628,25 +631,43 @@ export class WatchlistsComponent implements OnDestroy {
       .filter((column): column is WatchlistColumn => column !== undefined);
   }
 
-  get totalPages(): number {
-    return Math.max(1, Math.ceil(this.selectedWatchlist.items.length / this.pageSize));
-  }
-
-  get startIndex(): number {
-    return this.selectedWatchlist.items.length ? (this.currentPage - 1) * this.pageSize : 0;
-  }
-
-  get endIndex(): number {
-    return Math.min(this.startIndex + this.pageSize, this.selectedWatchlist.items.length);
-  }
-
-  get paginatedItems(): WatchlistItem[] {
-    return this.sortedItems.slice(this.startIndex, this.endIndex);
-  }
-
-  /** The selected watchlist's items in the current sort order (sorting covers every page, not just the visible one). */
+  /** Every item of the selected watchlist, in the current sort order; the table shows them all on one page. */
   get sortedItems(): WatchlistItem[] {
-    const items = this.selectedWatchlist.items;
+    const sorted = this.sortByColumn(this.selectedWatchlist.items);
+    // India: ETFs always come after the stocks, each group keeping the column sort.
+    if (this.selectedMarket !== 'India') {
+      return sorted;
+    }
+    return [...sorted.filter((item) => !this.isEtf(item)), ...sorted.filter((item) => this.isEtf(item))];
+  }
+
+  /**
+   * India only: true for ETFs. Uses NSE's ETF list, a Tapetide stock type of ETF, or (for tickers NSE no longer
+   * lists) an ETF-style ticker name.
+   */
+  isEtf(item: WatchlistItem): boolean {
+    if (this.selectedMarket !== 'India') {
+      return false;
+    }
+    const symbol = this.indiaApiSymbol(item.symbol);
+    return this.indiaEtfSymbols.has(symbol)
+      || item.assetType?.toUpperCase() === 'ETF'
+      || INDIA_ETF_SYMBOL_PATTERN.test(symbol);
+  }
+
+  private loadIndiaEtfSymbols(): void {
+    this.nseSymbolsService.listEtfs().subscribe({
+      next: (etfs) => {
+        this.indiaEtfSymbols = new Set(etfs.map((etf) => etf.symbol.toUpperCase()));
+      },
+      error: (error: unknown) => {
+        console.error('[NSE] Could not load the ETF list; ETF rows are detected from ticker names only', error);
+        this.statusMessage = 'Could not load the NSE ETF list, so some ETF rows may not be marked or moved to the bottom.';
+      },
+    });
+  }
+
+  private sortByColumn(items: WatchlistItem[]): WatchlistItem[] {
     const key = this.sortColumnKey;
     if (!key) {
       return items;
@@ -682,7 +703,6 @@ export class WatchlistsComponent implements OnDestroy {
     } else {
       this.sortColumnKey = null;
     }
-    this.currentPage = 1;
   }
 
   sortIndicator(key: WatchlistColumnKey): string {
@@ -748,7 +768,6 @@ export class WatchlistsComponent implements OnDestroy {
   selectWatchlist(id: string): void {
     this.selectedWatchlistId = id;
     this.resetSortToMarketCap();
-    this.currentPage = 1;
     this.watchlistDropdownOpen = false;
     this.statusMessage = '';
     this.loadFmpProfiles();
@@ -757,7 +776,6 @@ export class WatchlistsComponent implements OnDestroy {
   selectFavoriteWatchlist(id: string): void {
     this.selectedWatchlistId = id;
     this.resetSortToMarketCap();
-    this.currentPage = 1;
     this.statusMessage = '';
     this.loadFmpProfiles();
   }
@@ -1020,7 +1038,6 @@ export class WatchlistsComponent implements OnDestroy {
     };
     this.watchlists = [...this.watchlists, newWatchlist];
     this.selectedWatchlistId = newWatchlist.id;
-    this.currentPage = 1;
     this.addWatchlistDialogOpen = false;
     this.newWatchlistMessage = '';
     this.statusMessage = `${name} added in this session. This backend currently only supports loading and importing watchlists.`;
@@ -1058,9 +1075,6 @@ export class WatchlistsComponent implements OnDestroy {
         this.stagedStocks = [];
         this.addStocksDialogOpen = false;
         this.resetSymbolSearch();
-        if (this.selectedWatchlistId === watchlist.id) {
-          this.currentPage = Math.ceil(this.selectedWatchlist.items.length / this.pageSize);
-        }
         this.statusMessage = `${saved.length} ${saved.length === 1 ? 'stock' : 'stocks'} saved to ${watchlist.name}.`;
         this.loadFmpProfiles();
       },
@@ -1108,7 +1122,6 @@ export class WatchlistsComponent implements OnDestroy {
     }
     if (this.isFavoritesList && favorites.size === 0) {
       this.selectedWatchlistId = this.watchlists[0]?.id ?? '';
-      this.currentPage = 1;
     }
     this.persistFavorites();
   }
@@ -1154,7 +1167,6 @@ export class WatchlistsComponent implements OnDestroy {
       ...list,
       items: list.items.filter((current) => current.symbol !== symbol),
     });
-    this.currentPage = Math.min(this.currentPage, Math.max(1, this.totalPages));
   }
 
   openDescriptionDialog(item: WatchlistItem): void {
@@ -1375,14 +1387,6 @@ export class WatchlistsComponent implements OnDestroy {
       case 'cons':
         return item.metrics?.[key] ?? this.profileMetric(item, key) ?? '—';
     }
-  }
-
-  previousPage(): void {
-    this.currentPage = Math.max(1, this.currentPage - 1);
-  }
-
-  nextPage(): void {
-    this.currentPage = Math.min(this.totalPages, this.currentPage + 1);
   }
 
   /**
@@ -1619,8 +1623,12 @@ export class WatchlistsComponent implements OnDestroy {
     }
   }
 
-  get researchSites(): readonly ResearchSite[] {
-    return this.selectedMarket === 'India' ? INDIA_RESEARCH_SITES : US_RESEARCH_SITES;
+  /** Research links for a row. India ETFs get ETF Screen instead of Finology (FIN); everything else is unchanged. */
+  researchSitesFor(item: WatchlistItem): readonly ResearchSite[] {
+    if (this.selectedMarket !== 'India') {
+      return US_RESEARCH_SITES;
+    }
+    return this.isEtf(item) ? INDIA_ETF_RESEARCH_SITES : INDIA_RESEARCH_SITES;
   }
 
   /**
@@ -2041,7 +2049,6 @@ export class WatchlistsComponent implements OnDestroy {
     this.isLoadingWatchlists = true;
     this.watchlists = [];
     this.selectedWatchlistId = '';
-    this.currentPage = 1;
     if (!preserveStatusMessage) {
       this.statusMessage = '';
     }
@@ -2049,17 +2056,17 @@ export class WatchlistsComponent implements OnDestroy {
     // The table is drawn only after both arrive, so rows always appear with the saved columns and order.
     const columnsRequestId = ++this.columnPreferencesRequestId;
     forkJoin({
-      page: this.fetchAllWatchlistPages(0, market),
+      watchlists: this.watchlistsService.getWatchlists(market),
       columnKeys: this.fetchColumnPreferences(),
     }).subscribe({
-      next: ({ page: response, columnKeys }) => {
+      next: ({ watchlists: response, columnKeys }) => {
         if (requestId !== this.watchlistRequestId) {
           return;
         }
         if (columnsRequestId === this.columnPreferencesRequestId) {
           this.visibleColumnKeys = columnKeys;
         }
-        this.applyWatchlistPage(response, market);
+        this.applyWatchlists(response, market);
       },
       error: (error: unknown) => {
         if (requestId !== this.watchlistRequestId) {
@@ -2078,27 +2085,8 @@ export class WatchlistsComponent implements OnDestroy {
     });
   }
 
-  /** Fetches `firstPage`, then any later pages, and merges them into one response. */
-  private fetchAllWatchlistPages(firstPage: number, market: WatchlistMarket): Observable<WatchlistPageResponse> {
-    return this.watchlistsService.getWatchlists(firstPage, this.watchlistPageSize, market).pipe(
-      switchMap((first) => {
-        const remainingPages = Array.from(
-          { length: Math.max(0, first.totalPages - first.page - 1) },
-          (_, index) => first.page + index + 1,
-        );
-        if (!remainingPages.length) {
-          return of(first);
-        }
-        return forkJoin(remainingPages.map((pageNumber) =>
-          this.watchlistsService.getWatchlists(pageNumber, this.watchlistPageSize, market))).pipe(
-          map((rest) => ({ ...first, content: [...first.content, ...rest.flatMap((response) => response.content)] })),
-        );
-      }),
-    );
-  }
-
-  private applyWatchlistPage(response: WatchlistPageResponse, market: WatchlistMarket): void {
-    const watchlists: WatchlistGroup[] = response.content.map((watchlist) => ({
+  private applyWatchlists(response: ApiWatchlist[], market: WatchlistMarket): void {
+    const watchlists: WatchlistGroup[] = response.map((watchlist) => ({
       id: String(watchlist.id),
       name: watchlist.name,
       market: watchlist.market,
@@ -2109,7 +2097,7 @@ export class WatchlistsComponent implements OnDestroy {
         name: item.name,
       })),
     }));
-    const apiFavoriteSymbols = response.content.flatMap((watchlist) =>
+    const apiFavoriteSymbols = response.flatMap((watchlist) =>
       watchlist.items.filter((item) => item.isFavorite).map((item) => item.symbol));
     this.favoriteSymbolsByMarket[market] = new Set([
       ...this.favoriteSymbolsByMarket[market],
@@ -2124,7 +2112,6 @@ export class WatchlistsComponent implements OnDestroy {
     this.selectedWatchlistId = (defaultWatchlist ?? this.watchlists[0])?.id ?? '';
     this.resetSortToMarketCap();
     this.isLoadingWatchlists = false;
-    this.currentPage = 1;
     this.loadFmpProfiles();
   }
 

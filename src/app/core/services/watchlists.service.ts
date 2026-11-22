@@ -26,26 +26,16 @@ export interface NewWatchlistItem {
   name: string;
 }
 
-export interface WatchlistPageResponse {
-  content: ApiWatchlist[];
-  page: number;
-  size: number;
-  totalElements: number;
-  totalPages: number;
-}
-
 @Injectable({ providedIn: 'root' })
 export class WatchlistsService {
   private readonly watchlistsUrl = `${environment.apiBaseUrl}/api/v1/watchlists`;
 
   constructor(private readonly http: HttpClient) {}
 
-  getWatchlists(page: number, size: number, market: WatchlistMarket): Observable<WatchlistPageResponse> {
-    const params = new HttpParams()
-      .set('page', page)
-      .set('size', size)
-      .set('market', market);
-    return this.http.get<WatchlistPageResponse>(this.watchlistsUrl, { params });
+  /** Every watchlist of the market with all of its items (the backend does not paginate). */
+  getWatchlists(market: WatchlistMarket): Observable<ApiWatchlist[]> {
+    const params = new HttpParams().set('market', market);
+    return this.http.get<ApiWatchlist[]>(this.watchlistsUrl, { params });
   }
 
   /**

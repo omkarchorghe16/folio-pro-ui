@@ -7,14 +7,14 @@
 .watchlists-page {
   .watchlist-panel { padding:20px; }
   .sample-note { color:var(--muted); font-size:.75rem; }
-  .toolbar,.actions,.market-control,.list-controls,.pagination,.pagination-actions { display:flex; align-items:center; }
+  .toolbar,.actions,.market-control,.list-controls { display:flex; align-items:center; }
   .toolbar { justify-content:flex-end; gap:16px; margin-bottom:18px; }
   .market-control { gap:4px; padding:4px; border:1px solid var(--border); border-radius:8px; background:var(--panel-raised); }
   .market-control button,.tool-button { padding:9px 12px; border:1px solid transparent; border-radius:6px; background:transparent; color:var(--muted); font-size:.76rem; white-space:nowrap; }
   .market-control button.selected { background:#4b8cff24; color:#9dc0ff; }
   .actions { justify-content:flex-end; flex-wrap:wrap; gap:7px; }
   .tool-button { border-color:var(--border); color:var(--text); }
-  .tool-button:hover,.pagination button:hover:not(:disabled) { background:#ffffff0b; }
+  .tool-button:hover { background:#ffffff0b; }
   .file-input { display:none; }
   .favorite-strip { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:-5px 0 18px; }
   .favorite-label { margin-right:4px; color:var(--muted); font-size:.72rem; }
@@ -84,6 +84,11 @@
   .star-symbol-button { border:0; background:transparent; color:var(--muted); font-size:1.2rem; }
   .star-symbol-button.is-favorite { color:var(--accent); }
   .symbol-cell { display:inline-flex; align-items:center; gap:8px; }
+  /* India ETF rows: a soft violet tint plus an "ETF" tag, so the difference does not rely on colour alone. */
+  tbody tr.etf-row { background:#b48cff0d; }
+  tbody tr.etf-row:hover { background:#b48cff17; }
+  tbody tr.etf-row td:first-child { box-shadow:inset 3px 0 0 #b48cff66; }
+  .etf-tag { padding:2px 6px; border:1px solid #b48cff55; border-radius:4px; background:#b48cff1a; color:#c9adff; font-size:.62rem; font-weight:700; letter-spacing:.04em; }
   .company-link { color:#9dc0ff; text-decoration:underline; text-decoration-color:#9dc0ff66; text-underline-offset:3px; }
   .company-link:hover { color:#c3d8ff; text-decoration-color:currentColor; }
   .delete-symbol-button { display:inline-flex; align-items:center; padding:2px; border:0; border-radius:4px; background:transparent; color:var(--muted); line-height:1; }
@@ -116,10 +121,6 @@
   .remove-staged { border:0; background:transparent; color:var(--negative); font-size:.7rem; }
   .empty-staged { margin:0; padding:15px 3px; border-top:1px solid var(--border); color:var(--muted); font-size:.74rem; }
   .status-message { margin:0 0 12px; color:var(--accent); font-size:.76rem; }
-  .pagination { justify-content:space-between; gap:16px; padding-top:16px; color:var(--muted); font-size:.76rem; }
-  .pagination-actions { gap:12px; }
-  .pagination button { padding:8px 11px; border:1px solid var(--border); border-radius:6px; background:var(--panel-raised); color:var(--text); font-size:.75rem; }
-  .pagination button:disabled { cursor:not-allowed; opacity:.45; }
   .empty-state { padding:28px; color:var(--muted); text-align:center; }
 
   .columns-modal .columns-editor { min-height:0; max-height:min(50vh,420px); }
@@ -136,10 +137,9 @@
     .column-option { font-size:.68rem; }
     .market-control { width:100%; }
     .market-control button { flex:1; }
-    .list-controls,.pagination { align-items:stretch; flex-direction:column; }
+    .list-controls { align-items:stretch; flex-direction:column; }
     .list-select { width:100%; }
     .list-summary { margin-left:0; }
-    .pagination-actions { justify-content:space-between; }
   }
 }
 

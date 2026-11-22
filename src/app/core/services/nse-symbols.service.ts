@@ -25,6 +25,11 @@ export class NseSymbolsService {
 
   constructor(private readonly http: HttpClient) {}
 
+  /** Every NSE-listed ETF (a few hundred symbols); used to mark ETF rows on the India watchlist. */
+  listEtfs(): Observable<NseSymbol[]> {
+    return this.http.get<NseSymbol[]>(this.symbolsUrl, { params: new HttpParams().set('type', 'ETF') });
+  }
+
   search(query: string, limit = 20): Observable<NseSymbol[]> {
     const params = new HttpParams().set('query', query.trim()).set('limit', limit);
     return this.http.get<NseSymbol[]>(this.symbolsUrl, { params });

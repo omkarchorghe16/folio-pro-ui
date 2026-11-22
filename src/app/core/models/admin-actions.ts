@@ -72,8 +72,8 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
     group: 'Other actions',
     service: 'invesment-management-svc',
     name: 'Watchlist service check',
-    description: 'Lists one India watchlist to confirm invesment-management-svc is up and its database is reachable.',
+    description: 'Lists the India watchlists to confirm invesment-management-svc is up and its database is reachable.',
     method: 'GET',
-    url: `${environment.apiBaseUrl}/api/v1/watchlists?market=India&page=0&size=1`,
+    url: `${environment.apiBaseUrl}/api/v1/watchlists?market=India`,
   },
 ];

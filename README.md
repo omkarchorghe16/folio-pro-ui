@@ -36,13 +36,18 @@ is a new 8082 path).
 - Table columns are chosen under **Edit columns** and saved per user (shared by both pages). The India
   page adds India-only columns (NSE/BSE codes, cap category, promoter holding, ROCE, growth, analyst
   ratings, pros/cons, …).
+- All stocks of the selected watchlist are listed on one scrolling page (no pagination); the backend
+  returns every watchlist and item in one response.
+- India page: ETF rows have a soft violet tint and an **ETF** tag, and are always listed after the stocks
+  (the column sort applies within each group). ETFs are recognised from NSE's ETF list
+  (`GET /api/india/nse/symbols?type=ETF`, loaded once), a Tapetide stock type of ETF, or an ETF-style ticker.
 - Every column header sorts (▲ ascending, ▼ descending, off). Each watchlist opens sorted by market
   cap, largest first. Market cap is shown as T / B / M; Change % has two decimals.
 - The **Name** column links to the company's own website (from the FMP or Tapetide profile, new tab);
   it stays plain text until the profile loads or when the profile has no website.
 - **Company description** column: *View* opens the description, plus research links that open in a
   new tab — US: Yahoo, TradingView, Finviz, Google Finance, IMG (Google search); India: TradingView,
-  Screener, Finology, IMG.
+  Screener, Finology, IMG (ETF rows show **ETF**, ETF Screen at `https://etfscreen.in/etf/{symbol}`, in place of Finology).
 - **＋ Add stocks** (next to the dropdown) opens a dialog to pick stocks. Typing searches tickers and names:
   NSE on the India page (`GET /api/india/nse/symbols`), the US symbol directory on the US page
   (`GET /api/us/nasdaq/symbols`), both on 8082. Picking a match puts it under *Stocks to add*; **Save**
