@@ -28,6 +28,8 @@ backend call acts as user `1`. Nothing on any screen is investment advice.
   ratings, pros/cons, …).
 - Every column header sorts (▲ ascending, ▼ descending, off). Each watchlist opens sorted by market
   cap, largest first. Market cap is shown as T / B / M; Change % has two decimals.
+- The **Name** column links to the company's own website (from the FMP or Tapetide profile, new tab);
+  it stays plain text until the profile loads or when the profile has no website.
 - **Company description** column: *View* opens the description, plus research links that open in a
   new tab — US: Yahoo, TradingView, Finviz, Google Finance, IMG (Google search); India: TradingView,
   Screener, Finology, IMG.

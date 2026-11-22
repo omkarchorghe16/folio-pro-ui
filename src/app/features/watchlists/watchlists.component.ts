@@ -41,19 +41,21 @@ interface ResearchSite {
   label: string;
   name: string;
   urlTemplate: string;
+  /** Button colour class (see .tone-* in styles.scss), loosely after each site's own colours. */
+  tone: string;
 }
 const INDIA_RESEARCH_SITES: readonly ResearchSite[] = [
-  { label: 'TV', name: 'TradingView', urlTemplate: 'https://in.tradingview.com/symbols/NSE-{symbol}/' },
-  { label: 'SC', name: 'Screener', urlTemplate: 'https://www.screener.in/company/{symbol}/consolidated/' },
-  { label: 'FIN', name: 'Finology', urlTemplate: 'https://ticker.finology.in/company/{symbol}' },
-  { label: 'IMG', name: 'Google image search', urlTemplate: 'https://www.google.com/search?q={symbol}+business+products+services+images+photos' },
+  { label: 'TV', name: 'TradingView', urlTemplate: 'https://in.tradingview.com/symbols/NSE-{symbol}/', tone: 'tone-teal' },
+  { label: 'SC', name: 'Screener', urlTemplate: 'https://www.screener.in/company/{symbol}/consolidated/', tone: 'tone-indigo' },
+  { label: 'FIN', name: 'Finology', urlTemplate: 'https://ticker.finology.in/company/{symbol}', tone: 'tone-amber' },
+  { label: 'IMG', name: 'Google image search', urlTemplate: 'https://www.google.com/search?q={symbol}+business+products+services+images+photos', tone: 'tone-pink' },
 ];
 const US_RESEARCH_SITES: readonly ResearchSite[] = [
-  { label: 'Yahoo', name: 'Yahoo Finance', urlTemplate: 'https://finance.yahoo.com/quote/{symbol}/' },
-  { label: 'TV', name: 'TradingView', urlTemplate: 'https://www.tradingview.com/symbols/NASDAQ-{symbol}/' },
-  { label: 'Finviz', name: 'Finviz', urlTemplate: 'https://finviz.com/stock?t={symbol}&p=d' },
-  { label: 'GoogleFin', name: 'Google Finance', urlTemplate: 'https://www.google.com/finance/beta/quote/{symbol}:NASDAQ' },
-  { label: 'IMG', name: 'Google image search', urlTemplate: 'https://www.google.com/search?q={symbol}+business+products+services+images+photos' },
+  { label: 'Yahoo', name: 'Yahoo Finance', urlTemplate: 'https://finance.yahoo.com/quote/{symbol}/', tone: 'tone-purple' },
+  { label: 'TV', name: 'TradingView', urlTemplate: 'https://www.tradingview.com/symbols/NASDAQ-{symbol}/', tone: 'tone-teal' },
+  { label: 'Finviz', name: 'Finviz', urlTemplate: 'https://finviz.com/stock?t={symbol}&p=d', tone: 'tone-orange' },
+  { label: 'GoogleFin', name: 'Google Finance', urlTemplate: 'https://www.google.com/finance/beta/quote/{symbol}:NASDAQ', tone: 'tone-green' },
+  { label: 'IMG', name: 'Google image search', urlTemplate: 'https://www.google.com/search?q={symbol}+business+products+services+images+photos', tone: 'tone-pink' },
 ];
 /** Parallel Tapetide profile requests for the India page. */
 const INDIA_PROFILE_CONCURRENCY = 4;
@@ -94,11 +96,11 @@ const PERCENT_COLUMNS = new Set<string>([
             <div class="actions">
               <input #fileInput class="file-input" type="file" accept=".csv,text/csv"
                 aria-label="Choose watchlist CSV to import" [disabled]="isImporting" (change)="importCsv($event)">
-              <button class="tool-button" type="button" [disabled]="isImporting" (click)="fileInput.click()">
+              <button class="tool-button tone-teal" type="button" [disabled]="isImporting" (click)="fileInput.click()">
                 {{ isImporting ? 'Importing…' : 'Import CSV' }}
               </button>
-              <button class="tool-button" type="button" (click)="exportCsv()">Export CSV</button>
-              <button class="tool-button" type="button" [attr.aria-expanded]="columnsEditorOpen"
+              <button class="tool-button tone-purple" type="button" (click)="exportCsv()">Export CSV</button>
+              <button class="tool-button tone-amber" type="button" [attr.aria-expanded]="columnsEditorOpen"
                 aria-controls="columns-editor" (click)="openColumnEditor()">Edit columns</button>
             </div>
           </div>
@@ -329,6 +331,12 @@ const PERCENT_COLUMNS = new Set<string>([
               <tbody>
                 <tr *ngFor="let item of paginatedItems">
                   <td *ngFor="let column of visibleColumns" [ngSwitch]="column.key">
+                    <ng-container *ngSwitchCase="'name'">
+                      <a *ngIf="companyWebsite(item) as website; else plainName" class="company-link" [href]="website"
+                        target="_blank" rel="noopener noreferrer" [title]="website"
+                        [attr.aria-label]="'Open the ' + item.name + ' website in a new tab'">{{ item.name }}</a>
+                      <ng-template #plainName><span>{{ item.name }}</span></ng-template>
+                    </ng-container>
                     <span *ngSwitchCase="'symbol'" class="symbol-cell">
                       <strong>{{ item.symbol }}</strong>
                       <button type="button" class="star-symbol-button"
@@ -355,11 +363,11 @@ const PERCENT_COLUMNS = new Set<string>([
                     <span *ngSwitchCase="'trend'" class="badge"
                       [ngClass]="item.trend === 'Bullish' ? 'up' : item.trend === 'Bearish' ? 'down' : 'neutral'">{{ item.trend ?? '—' }}</span>
                     <span *ngSwitchCase="'description'" class="description-actions">
-                      <button type="button" class="description-view-button"
+                      <button type="button" class="description-view-button tone-blue"
                         [disabled]="!item.profileData?.['description']"
                         [attr.aria-label]="'View description for ' + item.name"
                         (click)="openDescriptionDialog(item)">View</button>
-                      <a *ngFor="let site of researchSites" class="description-view-button research-link"
+                      <a *ngFor="let site of researchSites" class="description-view-button research-link" [ngClass]="site.tone"
                         [href]="researchUrl(site, item)" target="_blank" rel="noopener noreferrer"
                         [title]="'Open ' + item.symbol + ' on ' + site.name"
                         [attr.aria-label]="'Open ' + item.symbol + ' on ' + site.name + ' in a new tab'">{{ site.label }}</a>
@@ -1584,6 +1592,24 @@ export class WatchlistsComponent implements OnDestroy {
   }
 
   /** Research sites for the current page: Yahoo / TV / Finviz / GoogleFin on US, TV / SC / FIN on India. */
+  /**
+   * The company's own website from its FMP (US) or Tapetide (India) profile, as an absolute http(s) URL, or null
+   * until the profile loads or when it has none. A bare domain such as "apple.com" gets https:// added.
+   */
+  companyWebsite(item: WatchlistItem): string | null {
+    const value = this.getColumnValue(item, 'website');
+    const raw = typeof value === 'string' ? value.trim() : '';
+    if (!raw || raw === '—') {
+      return null;
+    }
+    try {
+      const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+      return (url.protocol === 'http:' || url.protocol === 'https:') && url.hostname.includes('.') ? url.href : null;
+    } catch {
+      return null;
+    }
+  }
+
   get researchSites(): readonly ResearchSite[] {
     return this.selectedMarket === 'India' ? INDIA_RESEARCH_SITES : US_RESEARCH_SITES;
   }
