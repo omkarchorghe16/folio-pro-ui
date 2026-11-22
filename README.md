@@ -15,15 +15,15 @@ backend call acts as user `1`. Nothing on any screen is investment advice.
 | `/login`, `/register` | Sign-in / sign-up prototype | none (not connected) |
 | `/dashboard` | Ideas dashboard | mock |
 | `/portfolio`, `/stocks`, `/ipo`, `/crypto` | Portfolio, stock screener, IPO pipeline, crypto | mock |
-| `/watchlists/us` | **US watchlist** (`/watchlists` redirects here) | live: invesment-management-svc + FMP via news-scheduler-svc |
-| `/watchlists/india` | **India watchlist** | live: invesment-management-svc + Tapetide via news-scheduler-svc |
+| `/watchlists/us` | **US watchlist** (`/watchlists` redirects here) | live: folio-portfolio-api + FMP via folio-market-feed-svc |
+| `/watchlists/india` | **India watchlist** | live: folio-portfolio-api + Tapetide via folio-market-feed-svc |
 | `/profile`, `/settings` | Profile and settings | mock |
 | `/admin` | Run scheduled jobs and other backend calls on demand | real (8081, 8082) |
 
 ### Admin page
 
 Opened from **Admin** in the right-hand rail. Each card runs one backend call and shows the HTTP status, time
-and response body. Scheduled jobs (all in news-scheduler-svc; invesment-management-svc has none): daily news
+and response body. Scheduled jobs (all in folio-market-feed-svc; folio-portfolio-api has none): daily news
 digest (`POST /api/digest/run`, asks for confirmation), NSE symbol sync (`POST /api/india/nse/sync`), US symbol
 sync (`POST /api/us/nasdaq/sync`). Other actions: health checks for both services. To add a call, add an entry
 to `ADMIN_ACTIONS` in `src/app/core/models/admin-actions.ts` (and its path prefix to `proxy.conf.json` if it
@@ -68,8 +68,8 @@ The watchlist pages need all three services:
 | Service | Repo | Port | Start |
 |---|---|---|---|
 | Angular UI | this repo | 4200 | `npm install` then `npm start` |
-| Watchlists API | `../invesment-management-svc` | 8081 | IntelliJ or `mvn spring-boot:run` |
-| Market data (FMP, Tapetide) | `../news-scheduler-svc` | 8082 | IntelliJ or `mvn spring-boot:run` |
+| Watchlists API | `../folio-portfolio-api` | 8081 | IntelliJ or `mvn spring-boot:run` |
+| Market data (FMP, Tapetide) | `../folio-market-feed-svc` | 8082 | IntelliJ or `mvn spring-boot:run` |
 
 Both backends use the shared PostgreSQL database `folio_pro`. Open http://localhost:4200.
 
@@ -78,7 +78,7 @@ Both backends use the shared PostgreSQL database `folio_pro`. Open http://localh
 (`http://localhost:8081`).
 
 **Restart after configuration changes.** `ng serve` reads `proxy.conf.json` only at startup, Flyway
-migrations in invesment-management-svc run only at startup, and CORS changes in either backend need a
+migrations in folio-portfolio-api run only at startup, and CORS changes in either backend need a
 restart. A stale process is the usual cause of empty tables or a `200` response that contains the
 Angular `index.html` instead of JSON.
 

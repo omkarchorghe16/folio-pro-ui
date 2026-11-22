@@ -11,7 +11,7 @@ export interface WatchlistCsvFile {
 }
 
 /**
- * Downloads watchlists as CSV from invesment-management-svc, in the same column-oriented format the import
+ * Downloads watchlists as CSV from folio-portfolio-api, in the same column-oriented format the import
  * reads: watchlist names in the first row, each one's ticker symbols in the column below.
  */
 @Injectable({ providedIn: 'root' })

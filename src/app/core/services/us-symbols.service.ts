@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 
 export type UsSymbolType = 'EQUITY' | 'ETF';
 
-/** One US-listed security from news-scheduler-svc (Nasdaq Trader's symbol directory). */
+/** One US-listed security from folio-market-feed-svc (Nasdaq Trader's symbol directory). */
 export interface UsSymbol {
   /** Trading symbol as Nasdaq Trader publishes it, e.g. AAPL, BRK.B, or ABR$D for a preferred share. */
   symbol: string;
@@ -15,7 +15,7 @@ export interface UsSymbol {
 }
 
 /**
- * Type-ahead search over US tickers and names (news-scheduler-svc on port 8082, reached through the dev
+ * Type-ahead search over US tickers and names (folio-market-feed-svc on port 8082, reached through the dev
  * proxy at /api/us). Best matches come first. The service answers 503 until the lists are downloaded.
  */
 @Injectable({ providedIn: 'root' })

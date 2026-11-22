@@ -37,9 +37,9 @@ npx tsc --noEmit -p tsconfig.app.json --noUnusedLocals --noUnusedParameters
 
 ## Related repositories (siblings in ../)
 
-- `invesment-management-svc` (8081): watchlists, favorites, CSV import, column preferences. Flyway
+- `folio-portfolio-api` (8081): watchlists, favorites, CSV import, column preferences. Flyway
   migrations; keep its H2 `test-schema.sql` in step.
-- `news-scheduler-svc` (8082): FMP (US) and Tapetide/Upstox (India) market data under `/api/fmp` and
+- `folio-market-feed-svc` (8082): FMP (US) and Tapetide/Upstox (India) market data under `/api/fmp` and
   `/api/india`.
 
 ## Before debugging "no data" problems

@@ -50,7 +50,7 @@ export interface TapetideProfilePayload {
   };
 }
 
-/** Row returned by news-scheduler-svc (tapetide_stock_datasets). `payload` is Tapetide's JSON. */
+/** Row returned by folio-market-feed-svc (tapetide_stock_datasets). `payload` is Tapetide's JSON. */
 export interface TapetideProfileResponse {
   symbol: string;
   dataset: string;
@@ -59,7 +59,7 @@ export interface TapetideProfileResponse {
 }
 
 /**
- * India stock profiles from news-scheduler-svc (port 8082, reached through the dev proxy at /api/india).
+ * India stock profiles from folio-market-feed-svc (port 8082, reached through the dev proxy at /api/india).
  * The service answers 204 when Tapetide has no data for a symbol; that is returned here as null.
  */
 @Injectable({ providedIn: 'root' })

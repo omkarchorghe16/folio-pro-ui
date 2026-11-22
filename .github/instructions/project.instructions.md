@@ -9,9 +9,9 @@ dev-standards) also apply; where this file is more specific, it wins. Edit this 
 
 ## Backends
 
-- `invesment-management-svc` (8081): watchlists, favorites, CSV import, column preferences. URLs
+- `folio-portfolio-api` (8081): watchlists, favorites, CSV import, column preferences. URLs
   come from `environment.apiBaseUrl`.
-- `news-scheduler-svc` (8082): FMP (US) and Tapetide/Upstox (India) market data, US symbol search and digests under the relative
+- `folio-market-feed-svc` (8082): FMP (US) and Tapetide/Upstox (India) market data, US symbol search and digests under the relative
   `/api/fmp`, `/api/india`, `/api/us` and `/api/digest` paths served by the dev proxy (`proxy.conf.json`).
 - There is no authentication; the user ID is `environment.currentUserId` (1).
 - The US and India watchlist pages use real backend data. All other screens use mock data from

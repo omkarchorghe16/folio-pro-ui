@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 
 export type NseSymbolType = 'EQUITY' | 'ETF';
 
-/** One NSE-listed security from news-scheduler-svc (NSE's official equity and ETF lists). */
+/** One NSE-listed security from folio-market-feed-svc (NSE's official equity and ETF lists). */
 export interface NseSymbol {
   /** NSE trading symbol, e.g. RELIANCE or NIFTYBEES. */
   symbol: string;
@@ -16,7 +16,7 @@ export interface NseSymbol {
 }
 
 /**
- * Type-ahead search over NSE tickers and names (news-scheduler-svc on port 8082, reached through the dev
+ * Type-ahead search over NSE tickers and names (folio-market-feed-svc on port 8082, reached through the dev
  * proxy at /api/india). Best matches come first. The service answers 503 until the lists are downloaded.
  */
 @Injectable({ providedIn: 'root' })

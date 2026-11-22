@@ -535,7 +535,7 @@ export class WatchlistsComponent implements OnDestroy {
   isSavingStocks = false;
   /** India stocks with a delete request in flight, so a double click cannot send two deletes. */
   readonly deletingSymbols = new Set<string>();
-  /** India: bare NSE symbols of every listed ETF, loaded once from news-scheduler-svc. */
+  /** India: bare NSE symbols of every listed ETF, loaded once from folio-market-feed-svc. */
   private indiaEtfSymbols = new Set<string>();
   /** US ETF tickers from the Nasdaq Trader directory, with '.' and '-' class separators both stored. */
   private usEtfSymbols = new Set<string>();
@@ -1005,11 +1005,11 @@ export class WatchlistsComponent implements OnDestroy {
     const label = this.symbolListLabel;
     if (error instanceof HttpErrorResponse) {
       if (error.status === 0) {
-        return `Could not reach the market data service (news-scheduler-svc on port 8082) to search ${label} symbols.`;
+        return `Could not reach the market data service (folio-market-feed-svc on port 8082) to search ${label} symbols.`;
       }
       if (error.status === 503) {
         const syncPath = this.selectedMarket === 'India' ? '/api/india/nse/sync' : '/api/us/nasdaq/sync';
-        return `The ${label} symbol list has not been downloaded yet. Run POST ${syncPath} on news-scheduler-svc.`;
+        return `The ${label} symbol list has not been downloaded yet. Run POST ${syncPath} on folio-market-feed-svc.`;
       }
       return `${label} symbol search failed (HTTP ${error.status}). You can still type a ticker and press Add.`;
     }
@@ -1110,7 +1110,7 @@ export class WatchlistsComponent implements OnDestroy {
     if (error instanceof HttpErrorResponse) {
       const serverMessage = typeof error.error?.message === 'string' ? error.error.message : '';
       if (error.status === 0) {
-        return 'Could not reach the watchlist service (invesment-management-svc on port 8081). Nothing was saved.';
+        return 'Could not reach the watchlist service (folio-portfolio-api on port 8081). Nothing was saved.';
       }
       if (error.status === 400) {
         return `${serverMessage || 'The stocks could not be saved.'} Nothing was saved.`;
@@ -1617,7 +1617,7 @@ export class WatchlistsComponent implements OnDestroy {
         return `${prefix}: /api/india returned the Angular page instead of JSON. Restart "ng serve" so proxy.conf.json is reloaded.`;
       }
       if (first.status === 0 || first.status === 504) {
-        return `${prefix}: news-scheduler-svc (port 8082) is not reachable. Check that it is running.`;
+        return `${prefix}: folio-market-feed-svc (port 8082) is not reachable. Check that it is running.`;
       }
       return `${prefix} (HTTP ${first.status}). See the browser console for details.`;
     }

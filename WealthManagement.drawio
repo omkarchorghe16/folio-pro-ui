@@ -21,7 +21,7 @@
             <mxPoint x="300" y="320" as="sourcePoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="GRJmuqHnZfVKxDy-Sh4E-2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;" value="news-scheduler-svc" vertex="1">
+        <mxCell id="GRJmuqHnZfVKxDy-Sh4E-2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;" value="folio-market-feed-svc" vertex="1">
           <mxGeometry height="60" width="120" x="420" y="280" as="geometry" />
         </mxCell>
         <mxCell id="GRJmuqHnZfVKxDy-Sh4E-11" edge="1" parent="1" source="GRJmuqHnZfVKxDy-Sh4E-3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;defaultLabelBackgroundColor=page;" target="GRJmuqHnZfVKxDy-Sh4E-10" value="">
@@ -33,7 +33,7 @@
         <mxCell id="GRJmuqHnZfVKxDy-Sh4E-25" edge="1" parent="1" source="GRJmuqHnZfVKxDy-Sh4E-3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;defaultLabelBackgroundColor=page;" target="GRJmuqHnZfVKxDy-Sh4E-24" value="">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="GRJmuqHnZfVKxDy-Sh4E-3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;" value="personal-wealth-management-angular" vertex="1">
+        <mxCell id="GRJmuqHnZfVKxDy-Sh4E-3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;roundedPerimeter=1;" value="folio-pro-ui" vertex="1">
           <mxGeometry height="60" width="120" x="360" y="50" as="geometry" />
         </mxCell>
         <mxCell id="GRJmuqHnZfVKxDy-Sh4E-28" edge="1" parent="1" source="GRJmuqHnZfVKxDy-Sh4E-4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;defaultLabelBackgroundColor=page;" target="GRJmuqHnZfVKxDy-Sh4E-27" value="">

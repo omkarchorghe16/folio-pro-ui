@@ -36,7 +36,7 @@ const GROUPS: readonly { name: AdminActionGroup; description: string }[] = [
             <article class="card action-card" *ngFor="let action of actionsIn(group.name)">
               <header class="action-header">
                 <div>
-                  <span class="service-badge" [class.service-8081]="action.service === 'invesment-management-svc'">
+                  <span class="service-badge" [class.service-8081]="action.service === 'folio-portfolio-api'">
                     {{ action.service }}
                   </span>
                   <h3>{{ action.name }}</h3>
