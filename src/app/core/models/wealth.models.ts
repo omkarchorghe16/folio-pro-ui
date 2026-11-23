@@ -146,6 +146,10 @@ export type WatchlistMetricKey =
   | 'analystRatings'
   | 'analystCount'
   | 'peerMedianPE'
+  // India price source (Tapetide or Upstox, whichever is newer) and age of the Tapetide fundamentals
+  | 'priceSource'
+  | 'priceAsOf'
+  | 'fundamentalsAsOf'
   | 'pros'
   | 'cons';
 
