@@ -16,13 +16,19 @@ backend call acts as user `1`. Nothing on any screen is investment advice.
 | `/dashboard` | Ideas dashboard | mock |
 | `/portfolio`, `/stocks`, `/ipo`, `/crypto` | Portfolio, stock screener, IPO pipeline, crypto | mock |
 | `/watchlists/us` | **US watchlist** (`/watchlists` redirects here) | live: folio-portfolio-api + FMP via folio-market-feed-svc |
-| `/watchlists/india` | **India watchlist** | live: folio-portfolio-api + Tapetide via folio-market-feed-svc |
+| `/watchlists/india` | **India watchlist** | live: folio-portfolio-api + Tapetide and Upstox via folio-market-feed-svc |
 | `/profile`, `/settings` | Profile and settings | mock |
 | `/admin` | Run scheduled jobs and other backend calls on demand | real (8081, 8082) |
 
 ### Admin page
 
-Opened from **Admin** in the right-hand rail. Each card runs one backend call and shows the HTTP status, time
+Opened from **Admin** in the right-hand rail. **API documentation** at the top links each service's Swagger UI
+(`http://localhost:8081/swagger-ui.html`, `http://localhost:8082/swagger-ui.html`) and OpenAPI JSON
+(`/v3/api-docs`). They open in a new tab on the service's own host, not through the dev proxy, so "Try it out"
+sends requests straight to that service. The links are in `API_DOCS` (`src/app/core/models/api-docs.ts`) and
+use `environment.apiBaseUrl` and `environment.marketFeedBaseUrl`.
+
+Below that, each card runs one backend call and shows the HTTP status, time
 and response body. Scheduled jobs (all in folio-market-feed-svc; folio-portfolio-api has none): daily news
 digest (`POST /api/digest/run`, asks for confirmation), NSE symbol sync (`POST /api/india/nse/sync`), US symbol
 sync (`POST /api/us/nasdaq/sync`). Other actions: health checks for both services. To add a call, add an entry
@@ -32,12 +38,21 @@ is a new 8082 path).
 ### Watchlist pages
 
 - Opens with a watchlist already selected (US: `TOP`; India: the first in the list) and loads its stocks.
-- Dropdown lists every watchlist, starred (favorite) lists first. The star saves to the backend.
+- Dropdown lists every watchlist, starred (favorite) lists first. The star saves to the backend. A filter box
+  at the top of the open dropdown has focus, so typing narrows the list to names containing the text (any
+  case); typing on the closed dropdown opens it with that letter. Enter opens the first match, Escape closes.
 - Table columns are chosen under **Edit columns** and saved per user (shared by both pages). The India
   page adds India-only columns (NSE/BSE codes, cap category, promoter holding, ROCE, growth, analyst
   ratings, pros/cons, …).
 - All stocks of the selected watchlist are listed on one scrolling page (no pagination); the backend
   returns every watchlist and item in one response.
+- India page data: fundamentals come from Tapetide (`GET /api/india/tapetide/profile/{symbol}`, one request per
+  stock). Prices come from Upstox (`GET /api/india/upstox/quotes`, batches of 100) or Tapetide, whichever is
+  newer: price, Change %, open, day high/low, previous close, price change and volume. Upstox has no
+  fundamentals. When folio-market-feed-svc has paused Tapetide (quota used up, plan expired or token
+  rejected; `GET /api/india/tapetide/status`), a notice above the table says so. Fundamentals then show
+  Tapetide's last saved values and prices come from Upstox. The optional **Price source**, **Price as of**
+  and **Fundamentals as of** columns (India market group) show where each row's numbers come from.
 - India page: ETF rows have a soft violet tint and an **ETF** tag, and are always listed after the stocks
   (the column sort applies within each group). ETFs are recognised from NSE's ETF list
   (`GET /api/india/nse/symbols?type=ETF`, loaded once), a Tapetide stock type of ETF, or an ETF-style ticker.
@@ -49,7 +64,8 @@ is a new 8082 path).
 - The **Name** column links to the company's own website (from the FMP or Tapetide profile, new tab);
   it stays plain text until the profile loads or when the profile has no website.
 - **Company description** column: *View* opens the description, plus research links that open in a
-  new tab — US: Yahoo, TradingView, Finviz, Google Finance, IMG (Google search); India: TradingView,
+  new tab — US: Yahoo, TradingView, Finviz, Google Finance, IMG (Google search for the ticker plus the asset name, e.g.
+  `NVDA NVIDIA Corporation business products services images photos`); India: TradingView,
   Screener, Finology, IMG (ETF rows show **ETF**, ETF Screen at `https://etfscreen.in/etf/{symbol}`, in place of Finology).
 - **＋ Add stocks** (next to the dropdown) opens a dialog to pick stocks. Typing searches tickers and names:
   NSE on the India page (`GET /api/india/nse/symbols`), the US symbol directory on the US page
@@ -106,7 +122,8 @@ src/
       watchlist-export.service.ts              CSV export (8081)
       watchlist-column-preferences.service.ts  saved table columns (8081)
       fmp-profiles.service.ts                  US profiles via /api/fmp (8082)
-      tapetide-profile.service.ts              India profiles via /api/india (8082)
+      tapetide-profile.service.ts              India profiles and Tapetide pause status via /api/india (8082)
+      upstox-quotes.service.ts                 India live quotes (price fallback) via /api/india (8082)
       nse-symbols.service.ts                   NSE ticker/name search via /api/india (8082)
       us-symbols.service.ts                    US ticker/name search via /api/us (8082)
       wealth.service.ts                        mock data for the other screens

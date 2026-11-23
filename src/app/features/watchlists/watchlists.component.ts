@@ -1,6 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { HttpErrorResponse, HttpEventType, HttpResponse } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, HostListener, OnDestroy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, HostListener, OnDestroy, ViewChild } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import {
   Observable, Subject, Subscription, catchError, debounceTime, distinctUntilChanged, forkJoin, from, map, mergeMap, of, switchMap,
@@ -9,7 +9,8 @@ import { WatchlistGroup, WatchlistItem, WatchlistMarket, WatchlistMetricKey } fr
 import { FmpProfile, FmpProfilesService } from '../../core/services/fmp-profiles.service';
 import { NseSymbol, NseSymbolsService } from '../../core/services/nse-symbols.service';
 import { UsSymbol, UsSymbolsService } from '../../core/services/us-symbols.service';
-import { TapetideProfilePayload, TapetideProfileService } from '../../core/services/tapetide-profile.service';
+import { TapetideProfilePayload, TapetideProfileService, TapetideStatus } from '../../core/services/tapetide-profile.service';
+import { UpstoxQuote, UpstoxQuotesService } from '../../core/services/upstox-quotes.service';
 import {
   WatchlistImportMarket,
   WatchlistImportResponse,
@@ -41,7 +42,10 @@ const DEFAULT_SORT_DIRECTION: 'asc' | 'desc' = 'desc';
 /** Name of the USA watchlist shown first in the dropdown and preselected on load (matched case-insensitively). */
 const DEFAULT_US_WATCHLIST_NAME = 'TOP';
 const MAX_IMPORT_FILE_SIZE_BYTES = 5 * 1024 * 1024;
-/** External research links shown next to "View" in the description column; {symbol} is the row's ticker. */
+/**
+ * External research links shown next to "View" in the description column; {symbol} is the row's ticker and {name}
+ * its asset name (left out, with its "+", when the row has no name or the name is just the ticker).
+ */
 interface ResearchSite {
   label: string;
   name: string;
@@ -53,7 +57,7 @@ const INDIA_RESEARCH_SITES: readonly ResearchSite[] = [
   { label: 'TV', name: 'TradingView', urlTemplate: 'https://in.tradingview.com/symbols/NSE-{symbol}/', tone: 'tone-teal' },
   { label: 'SC', name: 'Screener', urlTemplate: 'https://www.screener.in/company/{symbol}/consolidated/', tone: 'tone-indigo' },
   { label: 'FIN', name: 'Finology', urlTemplate: 'https://ticker.finology.in/company/{symbol}', tone: 'tone-amber' },
-  { label: 'IMG', name: 'Google image search', urlTemplate: 'https://www.google.com/search?q={symbol}+business+products+services+images+photos', tone: 'tone-pink' },
+  { label: 'IMG', name: 'Google image search', urlTemplate: 'https://www.google.com/search?q={symbol}+{name}+business+products+services+images+photos', tone: 'tone-pink' },
 ];
 /** India ETF rows: the same links with ETF Screen in place of Finology (FIN), which covers companies only. */
 const INDIA_ETF_RESEARCH_SITES: readonly ResearchSite[] = INDIA_RESEARCH_SITES.map((site) => site.name === 'Finology'
@@ -64,7 +68,7 @@ const US_RESEARCH_SITES: readonly ResearchSite[] = [
   { label: 'TV', name: 'TradingView', urlTemplate: 'https://www.tradingview.com/symbols/NASDAQ-{symbol}/', tone: 'tone-teal' },
   { label: 'Finviz', name: 'Finviz', urlTemplate: 'https://finviz.com/stock?t={symbol}&p=d', tone: 'tone-orange' },
   { label: 'GoogleFin', name: 'Google Finance', urlTemplate: 'https://www.google.com/finance/beta/quote/{symbol}:NASDAQ', tone: 'tone-green' },
-  { label: 'IMG', name: 'Google image search', urlTemplate: 'https://www.google.com/search?q={symbol}+business+products+services+images+photos', tone: 'tone-pink' },
+  { label: 'IMG', name: 'Google image search', urlTemplate: 'https://www.google.com/search?q={symbol}+{name}+business+products+services+images+photos', tone: 'tone-pink' },
 ];
 /** Parallel Tapetide profile requests for the India page. */
 const INDIA_PROFILE_CONCURRENCY = 4;
@@ -102,7 +106,7 @@ const PERCENT_COLUMNS = new Set<string>([
             <h1>{{ selectedMarket === 'US' ? 'US Watchlist' : 'India Watchlist' }}</h1>
             <p>Monitor {{ selectedMarket === 'US' ? 'US' : 'India' }} assets in your watchlists.</p>
           </div>
-          <span class="sample-note">{{ selectedMarket === 'US' ? 'Market data from FMP.' : 'Market data from Tapetide.' }} Informational only, not investment advice.</span>
+          <span class="sample-note">{{ marketDataNote }} Informational only, not investment advice.</span>
         </div>
 
         <section class="card watchlist-panel">
@@ -182,17 +186,27 @@ const PERCENT_COLUMNS = new Set<string>([
               <div class="watchlist-dropdown" (click)="$event.stopPropagation()">
                 <button id="watchlist-select" type="button" class="watchlist-select-button"
                   aria-labelledby="watchlist-select-label" [attr.aria-expanded]="watchlistDropdownOpen"
-                  aria-haspopup="listbox" (click)="watchlistDropdownOpen = !watchlistDropdownOpen">
+                  aria-haspopup="listbox" (click)="toggleWatchlistDropdown()"
+                  (keydown)="openWatchlistDropdownByTyping($event)">
                 <span>{{ selectedWatchlist.name }}</span><span class="dropdown-chevron" aria-hidden="true">⌄</span>
                 </button>
-                <div class="watchlist-menu" role="listbox" *ngIf="watchlistDropdownOpen">
+                <div class="watchlist-menu" *ngIf="watchlistDropdownOpen">
+                  <input #watchlistFilterInput type="search" class="watchlist-filter" placeholder="Type to find a watchlist"
+                    aria-label="Find a watchlist by name" aria-controls="watchlist-options" autocomplete="off"
+                    [value]="watchlistFilter" (input)="watchlistFilter = watchlistFilterInput.value"
+                    (keydown.enter)="selectFirstFilteredWatchlist()">
+                  <div id="watchlist-options" role="listbox" aria-labelledby="watchlist-select-label">
                   <p class="watchlist-loading" *ngIf="isLoadingWatchlists" role="status">Loading watchlists…</p>
-                  <button *ngIf="hasFavoriteSymbols" type="button" class="watchlist-option"
+                  <p class="watchlist-loading" role="status"
+                    *ngIf="!isLoadingWatchlists && watchlistFilter.trim() && !filteredWatchlists.length && !showFavoritesOption">
+                    No watchlist matches "{{ watchlistFilter.trim() }}".
+                  </p>
+                  <button *ngIf="showFavoritesOption" type="button" class="watchlist-option"
                     [class.active]="isFavoritesList" role="option" [attr.aria-selected]="isFavoritesList"
                     (click)="selectWatchlist(favoritesListId)">
                     <span class="option-name"><span class="favorite-star" aria-hidden="true">★</span> Favorites</span>
                   </button>
-                  <div class="watchlist-option-row" *ngFor="let watchlist of watchlists">
+                  <div class="watchlist-option-row" *ngFor="let watchlist of filteredWatchlists">
                     <button type="button" class="watchlist-option" [class.active]="selectedWatchlistId === watchlist.id"
                       role="option" [attr.aria-selected]="selectedWatchlistId === watchlist.id"
                       (click)="selectWatchlist(watchlist.id)">
@@ -213,6 +227,7 @@ const PERCENT_COLUMNS = new Set<string>([
                     aria-selected="false" [disabled]="isLoadingWatchlists" (click)="openAddWatchlistDialog()">
                     <span class="option-name"><span aria-hidden="true">＋</span> Add watchlist</span>
                   </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -329,6 +344,7 @@ const PERCENT_COLUMNS = new Set<string>([
             </section>
           </div>
 
+          <p class="status-message" role="status" aria-live="polite" *ngIf="tapetidePauseNotice">{{ tapetidePauseNotice }}</p>
           <p class="status-message" role="status" aria-live="polite" *ngIf="statusMessage">{{ statusMessage }}</p>
 
           <div class="table-wrap">
@@ -496,6 +512,9 @@ export class WatchlistsComponent implements OnDestroy {
     { key: 'salesTtm', label: 'Sales (TTM)', group: 'India market' },
     { key: 'netProfitTtm', label: 'Net profit (TTM)', group: 'India market' },
     { key: 'peerMedianPE', label: 'Peer median P/E', group: 'India market' },
+    { key: 'priceSource', label: 'Price source', group: 'India market' },
+    { key: 'priceAsOf', label: 'Price as of', group: 'India market' },
+    { key: 'fundamentalsAsOf', label: 'Fundamentals as of', group: 'India market' },
     { key: 'latestQuarter', label: 'Latest quarter', group: 'India growth' },
     { key: 'salesGrowthQoQ', label: 'Sales growth QoQ', group: 'India growth' },
     { key: 'salesGrowthYoY', label: 'Sales growth YoY', group: 'India growth' },
@@ -526,6 +545,8 @@ export class WatchlistsComponent implements OnDestroy {
   selectedMarket: WatchlistMarket = 'US';
   selectedWatchlistId = '';
   watchlistDropdownOpen = false;
+  /** Text typed in the watchlist dropdown's filter box; matches watchlist names case-insensitively. */
+  watchlistFilter = '';
   columnsEditorOpen = false;
   descriptionDialogItem: WatchlistItem | null = null;
   addStocksDialogOpen = false;
@@ -557,6 +578,12 @@ export class WatchlistsComponent implements OnDestroy {
   private readonly indiaProfilesRequested = new Set<string>();
   private indiaProfilesInFlight = 0;
   private readonly indiaProfileSubscriptions = new Subscription();
+  /** Upstox quotes by bare NSE symbol; shown over a Tapetide price when newer. */
+  private readonly indiaQuotes = new Map<string, UpstoxQuote>();
+  /** Time (ms) of the Tapetide price shown for each bare NSE symbol, so only a newer Upstox quote replaces it. */
+  private readonly tapetidePriceTimes = new Map<string, number>();
+  /** Null until GET /api/india/tapetide/status answers; available=false while the backend has paused Tapetide. */
+  tapetideStatus: TapetideStatus | null = null;
   /** Every watchlist opens sorted by market cap, largest first (T → B → M); header clicks can change it. */
   sortColumnKey: WatchlistColumnKey | null = DEFAULT_SORT_COLUMN;
   sortDirection: 'asc' | 'desc' = DEFAULT_SORT_DIRECTION;
@@ -577,6 +604,7 @@ export class WatchlistsComponent implements OnDestroy {
     private readonly watchlistsService: WatchlistsService,
     private readonly fmpProfilesService: FmpProfilesService,
     private readonly tapetideProfileService: TapetideProfileService,
+    private readonly upstoxQuotesService: UpstoxQuotesService,
     private readonly nseSymbolsService: NseSymbolsService,
     private readonly usSymbolsService: UsSymbolsService,
     private readonly columnPreferencesService: WatchlistColumnPreferencesService,
@@ -783,6 +811,48 @@ export class WatchlistsComponent implements OnDestroy {
   /** Name of the symbol list searched by the Add stocks dialog. */
   get symbolListLabel(): string {
     return this.selectedMarket === 'India' ? 'NSE' : 'US';
+  }
+
+  /** Focuses the filter box each time the dropdown opens, so the user can type straight away. */
+  @ViewChild('watchlistFilterInput')
+  set watchlistFilterInput(input: ElementRef<HTMLInputElement> | undefined) {
+    input?.nativeElement.focus();
+  }
+
+  /** Watchlists of this page whose name contains the filter text (all of them when it is empty). */
+  get filteredWatchlists(): WatchlistGroup[] {
+    const filter = this.watchlistFilter.trim().toLowerCase();
+    return filter ? this.watchlists.filter((list) => list.name.toLowerCase().includes(filter)) : this.watchlists;
+  }
+
+  /** The Favorites entry stays visible while it matches the filter. */
+  get showFavoritesOption(): boolean {
+    const filter = this.watchlistFilter.trim().toLowerCase();
+    return this.hasFavoriteSymbols && (!filter || 'favorites'.includes(filter));
+  }
+
+  toggleWatchlistDropdown(): void {
+    this.watchlistDropdownOpen = !this.watchlistDropdownOpen;
+    this.watchlistFilter = '';
+  }
+
+  /** Typing a letter or digit on the closed dropdown opens it with that text already in the filter box. */
+  openWatchlistDropdownByTyping(event: KeyboardEvent): void {
+    if (this.watchlistDropdownOpen || event.key.length !== 1 || event.ctrlKey || event.metaKey || event.altKey
+      || !event.key.trim()) {
+      return;
+    }
+    event.preventDefault();
+    this.watchlistFilter = event.key;
+    this.watchlistDropdownOpen = true;
+  }
+
+  /** Enter in the filter box opens the first match (Favorites first when it matches). */
+  selectFirstFilteredWatchlist(): void {
+    const first = this.showFavoritesOption ? this.favoritesListId : this.filteredWatchlists[0]?.id;
+    if (first) {
+      this.selectWatchlist(first);
+    }
   }
 
   selectWatchlist(id: string): void {
@@ -1403,6 +1473,9 @@ export class WatchlistsComponent implements OnDestroy {
       case 'analystRatings':
       case 'analystCount':
       case 'peerMedianPE':
+      case 'priceSource':
+      case 'priceAsOf':
+      case 'fundamentalsAsOf':
       case 'pros':
       case 'cons':
         return item.metrics?.[key] ?? this.profileMetric(item, key) ?? '—';
@@ -1556,6 +1629,10 @@ export class WatchlistsComponent implements OnDestroy {
    * Fetches a Tapetide profile for each symbol of the selected India watchlist that has not been loaded yet,
    * a few at a time, and fills in each row as its response arrives. Results are written to every watchlist
    * that contains the symbol, so switching lists mid-load loses nothing.
+   *
+   * Upstox quotes for the same symbols load alongside. Fundamentals always come from Tapetide (the last saved values
+   * while the backend has paused Tapetide); price, change, open/high/low and volume come from whichever of the two
+   * is newer, and the row records its price source and time.
    */
   private loadIndiaProfiles(): void {
     if (this.selectedMarket !== 'India' || this.isLoadingWatchlists) {
@@ -1569,6 +1646,8 @@ export class WatchlistsComponent implements OnDestroy {
       return;
     }
     symbols.forEach((symbol) => this.indiaProfilesRequested.add(symbol));
+    this.loadTapetideStatus();
+    this.loadIndiaQuotes(symbols);
     this.isLoadingProfiles = true;
     this.indiaProfilesInFlight += symbols.length;
     let remaining = symbols.length;
@@ -1576,20 +1655,24 @@ export class WatchlistsComponent implements OnDestroy {
 
     this.indiaProfileSubscriptions.add(from(symbols).pipe(
       mergeMap((symbol) => this.tapetideProfileService.getProfile(symbol).pipe(
-        map((response) => ({ symbol, payload: response?.payload ?? null })),
+        map((response) => ({ symbol, payload: response?.payload ?? null, savedAt: response?.updatedDate })),
         catchError((error: unknown) => {
           console.error(`[Tapetide] Failed to load India profile for ${symbol}`, error);
           failures.push({ symbol, error });
           // Allow a retry the next time this watchlist is opened.
           this.indiaProfilesRequested.delete(symbol);
-          return of({ symbol, payload: null });
+          return of({ symbol, payload: null, savedAt: undefined });
         }),
       ), INDIA_PROFILE_CONCURRENCY),
-    ).subscribe(({ symbol, payload }) => {
+    ).subscribe(({ symbol, payload, savedAt }) => {
       this.indiaProfilesInFlight--;
       this.isLoadingProfiles = this.indiaProfilesInFlight > 0;
-      if (--remaining === 0 && failures.length) {
-        this.statusMessage = this.indiaProfileErrorMessage(failures, symbols.length);
+      if (--remaining === 0) {
+        if (failures.length) {
+          this.statusMessage = this.indiaProfileErrorMessage(failures, symbols.length);
+        }
+        // Tapetide may have been paused by one of these requests.
+        this.loadTapetideStatus();
       }
       if (!payload?.data) {
         if (payload) {
@@ -1600,10 +1683,127 @@ export class WatchlistsComponent implements OnDestroy {
       this.watchlists = this.watchlists.map((list) => list.market !== 'India' ? list : {
         ...list,
         items: list.items.map((item) => this.indiaApiSymbol(item.symbol) === symbol
-          ? this.applyTapetideProfile(item, payload)
+          ? this.withNewestIndiaPrice(this.applyTapetideProfile(item, payload, savedAt))
           : item),
       });
     }));
+  }
+
+  /** Upstox quotes for India symbols; each batch updates its rows as it arrives. */
+  private loadIndiaQuotes(symbols: readonly string[]): void {
+    this.indiaProfileSubscriptions.add(this.upstoxQuotesService.getQuotes(symbols).subscribe({
+      next: (quotes) => {
+        const received = new Set<string>();
+        for (const quote of quotes) {
+          const symbol = this.indiaApiSymbol(quote.symbol);
+          this.indiaQuotes.set(symbol, quote);
+          received.add(symbol);
+        }
+        if (!received.size) {
+          return;
+        }
+        this.watchlists = this.watchlists.map((list) => list.market !== 'India' ? list : {
+          ...list,
+          items: list.items.map((item) => received.has(this.indiaApiSymbol(item.symbol))
+            ? this.withNewestIndiaPrice(item)
+            : item),
+        });
+      },
+      error: (error: unknown) => {
+        console.error('[Upstox] Failed to load India quotes', error);
+        this.statusMessage = 'Upstox prices could not be loaded, so India prices are Tapetide\'s saved values where available.';
+      },
+    }));
+  }
+
+  private loadTapetideStatus(): void {
+    this.indiaProfileSubscriptions.add(this.tapetideProfileService.getStatus().subscribe({
+      next: (status) => {
+        this.tapetideStatus = status;
+      },
+      error: (error: unknown) => console.error('[Tapetide] Failed to load status', error),
+    }));
+  }
+
+  /** Header note naming where the page's data comes from. */
+  get marketDataNote(): string {
+    if (this.selectedMarket === 'US') {
+      return 'Market data from FMP.';
+    }
+    return this.tapetideStatus?.available === false
+      ? 'Prices from Upstox; fundamentals are Tapetide\'s last saved values.'
+      : 'Fundamentals from Tapetide; prices from Tapetide or Upstox, whichever is newer.';
+  }
+
+  /** Shown on the India page while the backend has paused Tapetide (quota used up, plan expired or token rejected). */
+  get tapetidePauseNotice(): string {
+    const status = this.tapetideStatus;
+    if (this.selectedMarket !== 'India' || !status || status.available) {
+      return '';
+    }
+    const until = this.timestamp(status.pausedUntil);
+    return `Tapetide is paused${until === undefined ? '' : ` until ${this.formatIndiaTime(until)}`}`
+      + `: ${status.reason ?? 'quota or plan limit reached'} Fundamentals show the last saved values `
+      + '(see the "Fundamentals as of" column) and prices come from Upstox.';
+  }
+
+  /**
+   * Puts the Upstox price, change, open/high/low, previous close and volume on the row when the quote is newer than
+   * the Tapetide price shown (or there is none). Upstox has no fundamentals, so nothing else changes.
+   */
+  private withNewestIndiaPrice(item: WatchlistItem): WatchlistItem {
+    const symbol = this.indiaApiSymbol(item.symbol);
+    const quote = this.indiaQuotes.get(symbol);
+    const price = this.profileNumber(quote?.lastPrice);
+    if (!quote || price === undefined) {
+      return item;
+    }
+    const quoteTime = this.timestamp(quote.quoteTimestamp) ?? this.timestamp(quote.updatedDate);
+    const tapetideTime = this.tapetidePriceTimes.get(symbol);
+    if (tapetideTime !== undefined && (quoteTime === undefined || quoteTime <= tapetideTime)) {
+      return item;
+    }
+    const netChange = this.profileNumber(quote.netChange);
+    const previousClose = netChange === undefined ? undefined : price - netChange;
+    const metrics: Partial<Record<WatchlistMetricKey, string | number>> = { ...item.metrics, priceSource: 'Upstox' };
+    const values: Partial<Record<WatchlistMetricKey, number | string | undefined>> = {
+      open: this.profileNumber(quote.open),
+      dayHigh: this.profileNumber(quote.high),
+      dayLow: this.profileNumber(quote.low),
+      previousClose,
+      changeAmount: netChange,
+      priceAsOf: quoteTime === undefined ? undefined : this.formatIndiaTime(quoteTime),
+    };
+    for (const [key, value] of Object.entries(values) as [WatchlistMetricKey, number | string | undefined][]) {
+      if (value !== undefined) {
+        metrics[key] = value;
+      }
+    }
+    const volume = this.profileNumber(quote.volume);
+    return {
+      ...item,
+      name: item.name || (this.profileString(quote.name) ?? item.name),
+      price,
+      change: netChange !== undefined && previousClose ? (netChange / previousClose) * 100 : item.change,
+      volume: volume === undefined ? item.volume : String(volume),
+      metrics,
+    };
+  }
+
+  /** Milliseconds since the epoch for an ISO date-time, or undefined when missing or unreadable. */
+  private timestamp(value: unknown): number | undefined {
+    if (typeof value !== 'string' || !value.trim()) {
+      return undefined;
+    }
+    const time = Date.parse(value);
+    return Number.isFinite(time) ? time : undefined;
+  }
+
+  /** e.g. "20 Nov, 03:59 pm IST". */
+  private formatIndiaTime(time: number): string {
+    return `${new Date(time).toLocaleString('en-IN', {
+      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata',
+    })} IST`;
   }
 
   /** Explains why India stock data is missing, so a failure is visible on the page, not only in the console. */
@@ -1652,14 +1852,19 @@ export class WatchlistsComponent implements OnDestroy {
   }
 
   /**
-   * Research link for a row, using the ticker from the Symbol column (e.g. NVDA, RELIANCE).
+   * Research link for a row, using the ticker from the Symbol column (e.g. NVDA, RELIANCE) and, where the template
+   * has {name}, the Asset name column (e.g. the IMG search becomes "NVDA NVIDIA Corporation business products …").
    * India tickers lose any .NS/.BO suffix; special characters such as & are URL-encoded.
    */
   researchUrl(site: ResearchSite, item: WatchlistItem): string {
     const symbol = this.selectedMarket === 'India'
       ? this.indiaApiSymbol(item.symbol)
       : item.symbol.trim().toUpperCase();
-    return site.urlTemplate.replace('{symbol}', encodeURIComponent(symbol));
+    const name = item.name?.trim().replace(/\s+/g, ' ') ?? '';
+    const url = site.urlTemplate.replace('{symbol}', encodeURIComponent(symbol));
+    return name && name.toUpperCase() !== symbol
+      ? url.replace('{name}', encodeURIComponent(name))
+      : url.replace(/\+?\{name\}/, '');
   }
 
   /** Tapetide expects the bare NSE symbol, e.g. RELIANCE rather than RELIANCE.NS. */
@@ -1667,8 +1872,11 @@ export class WatchlistsComponent implements OnDestroy {
     return symbol.trim().toUpperCase().replace(/\.(NS|BO)$/, '');
   }
 
-  /** Maps a Tapetide profile (with ratings and peers) onto a watchlist row. */
-  private applyTapetideProfile(item: WatchlistItem, payload: TapetideProfilePayload): WatchlistItem {
+  /**
+   * Maps a Tapetide profile (with ratings and peers) onto a watchlist row. `savedAt` is when folio-market-feed-svc
+   * saved it; it dates the fundamentals and stands in for the price time when the payload has none.
+   */
+  private applyTapetideProfile(item: WatchlistItem, payload: TapetideProfilePayload, savedAt?: string): WatchlistItem {
     const data = payload.data ?? {};
     const company = data.company ?? {};
     const fundamentals = data.fundamentals ?? {};
@@ -1783,6 +1991,23 @@ export class WatchlistsComponent implements OnDestroy {
 
     const price = num(quote.price, priceMetrics.price);
     const volume = num(quote.volume, fundamentals.volume);
+    const symbol = this.indiaApiSymbol(item.symbol);
+    const priceTime = this.timestamp(quote.updated_at) ?? this.timestamp(priceMetrics.as_of) ?? this.timestamp(savedAt);
+    if (price !== undefined && priceTime !== undefined) {
+      this.tapetidePriceTimes.set(symbol, priceTime);
+    }
+    if (price !== undefined) {
+      metrics.priceSource = 'Tapetide';
+      if (priceTime !== undefined) {
+        metrics.priceAsOf = this.formatIndiaTime(priceTime);
+      }
+    }
+    const savedTime = this.timestamp(savedAt);
+    if (savedTime !== undefined) {
+      metrics.fundamentalsAsOf = new Date(savedTime).toLocaleDateString('en-IN', {
+        day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
+      });
+    }
     const stockType = text(company.stock_type);
     return {
       ...item,

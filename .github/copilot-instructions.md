@@ -6,7 +6,7 @@ surfaces, restrained borders, muted gray text, bright blue actions, and small wa
 login page uses a split layout with a branded feature panel and a focused sign-in form.
 
 The US and India watchlist pages use real backend data (`folio-portfolio-api` on 8081 for
-watchlists, `folio-market-feed-svc` on 8082 for FMP/Tapetide market data). All other screens use mock
+watchlists, `folio-market-feed-svc` on 8082 for FMP/Tapetide/Upstox market data). All other screens use mock
 data.
 
 ## Rules

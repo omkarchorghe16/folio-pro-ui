@@ -1,6 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, OnDestroy } from '@angular/core';
 import { Subscription } from 'rxjs';
+import { API_DOCS } from '../../core/models/api-docs';
 import { ADMIN_ACTIONS, AdminAction, AdminActionGroup } from '../../core/models/admin-actions';
 import { AdminActionResult, AdminActionsService } from '../../core/services/admin-actions.service';
 import { ShellComponent } from '../../shared/components/shell/shell.component';
@@ -10,7 +11,10 @@ const GROUPS: readonly { name: AdminActionGroup; description: string }[] = [
   { name: 'Other actions', description: 'Other backend calls, such as health checks.' },
 ];
 
-/** Admin page: one card per entry in ADMIN_ACTIONS, each with a Run button and the result of its last run. */
+/**
+ * Admin page: Swagger links for each backend (API_DOCS), then one card per entry in ADMIN_ACTIONS, each with a
+ * Run button and the result of its last run.
+ */
 @Component({
   selector: 'app-admin',
   standalone: true,
@@ -23,9 +27,36 @@ const GROUPS: readonly { name: AdminActionGroup; description: string }[] = [
         <div class="page-header">
           <div>
             <h1>Admin</h1>
-            <p>Trigger scheduled jobs and other backend calls on demand.</p>
+            <p>Open each service's Swagger UI, and trigger scheduled jobs and other backend calls on demand.</p>
           </div>
         </div>
+
+        <section class="admin-group" aria-labelledby="group-api-docs">
+          <div class="group-heading">
+            <h2 id="group-api-docs">API documentation</h2>
+            <p>Open a service's Swagger UI in a new tab to browse its contract and run requests with "Try it out".</p>
+          </div>
+          <div class="action-grid">
+            <article class="card action-card" *ngFor="let docs of apiDocs">
+              <header class="action-header">
+                <div>
+                  <span class="service-badge" [class.service-8081]="docs.service === 'folio-portfolio-api'">
+                    {{ docs.service }}
+                  </span>
+                  <h3>Swagger UI</h3>
+                </div>
+                <a class="run-button swagger-button" [href]="docs.swaggerUiUrl" target="_blank" rel="noopener noreferrer"
+                  [attr.aria-label]="'Open ' + docs.service + ' Swagger UI in a new tab'">Open Swagger</a>
+              </header>
+              <p class="action-description">{{ docs.description }}</p>
+              <dl class="action-meta">
+                <div><dt>Swagger UI</dt><dd><code>{{ docs.swaggerUiUrl }}</code></dd></div>
+                <div><dt>OpenAPI</dt><dd><a [href]="docs.openApiUrl" target="_blank" rel="noopener noreferrer"
+                  [attr.aria-label]="'Open ' + docs.service + ' OpenAPI JSON in a new tab'"><code>{{ docs.openApiUrl }}</code></a></dd></div>
+              </dl>
+            </article>
+          </div>
+        </section>
 
         <section class="admin-group" *ngFor="let group of groups" [attr.aria-labelledby]="'group-' + slug(group.name)">
           <div class="group-heading">
@@ -80,6 +111,9 @@ const GROUPS: readonly { name: AdminActionGroup; description: string }[] = [
     .run-button { flex-shrink:0; min-height:36px; padding:0 14px; border:1px solid var(--positive); border-radius:6px; background:var(--positive); color:#0f2a1e; font-size:.76rem; font-weight:700; white-space:nowrap; }
     .run-button:hover:not(:disabled) { background:#46d196; border-color:#46d196; }
     .run-button:disabled { cursor:progress; opacity:.6; }
+    .swagger-button { display:inline-flex; align-items:center; border-color:var(--primary); background:var(--primary); color:white; text-decoration:none; }
+    .swagger-button:hover { filter:brightness(1.1); }
+    .action-meta a { color:inherit; }
     .action-description { margin:0; color:var(--muted); font-size:.8rem; line-height:1.5; }
     .action-meta { display:grid; gap:6px; margin:0; font-size:.74rem; }
     .action-meta div { display:grid; grid-template-columns:72px minmax(0,1fr); gap:8px; }
@@ -99,6 +133,7 @@ const GROUPS: readonly { name: AdminActionGroup; description: string }[] = [
 })
 export class AdminComponent implements OnDestroy {
   readonly groups = GROUPS;
+  readonly apiDocs = API_DOCS;
   results: Record<string, AdminActionResult> = {};
   private readonly running = new Set<string>();
   private readonly subscriptions = new Subscription();

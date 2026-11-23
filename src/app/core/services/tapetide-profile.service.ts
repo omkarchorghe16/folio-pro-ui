@@ -58,6 +58,15 @@ export interface TapetideProfileResponse {
   updatedDate?: string;
 }
 
+/** GET /api/india/tapetide/status: whether folio-market-feed-svc is calling Tapetide or serving saved rows only. */
+export interface TapetideStatus {
+  available: boolean;
+  /** When calls resume (ISO, UTC); null when available. */
+  pausedUntil: string | null;
+  /** Why calls are paused, for example Tapetide's plan message; null when available. */
+  reason: string | null;
+}
+
 /**
  * India stock profiles from folio-market-feed-svc (port 8082, reached through the dev proxy at /api/india).
  * The service answers 204 when Tapetide has no data for a symbol; that is returned here as null.
@@ -65,6 +74,7 @@ export interface TapetideProfileResponse {
 @Injectable({ providedIn: 'root' })
 export class TapetideProfileService {
   private readonly profileUrl = '/api/india/tapetide/profile';
+  private readonly statusUrl = '/api/india/tapetide/status';
 
   constructor(private readonly http: HttpClient) {}
 
@@ -73,5 +83,10 @@ export class TapetideProfileService {
     return this.http.get<TapetideProfileResponse | null>(
       `${this.profileUrl}/${encodeURIComponent(symbol)}`, { params },
     ).pipe(map((response) => response ?? null));
+  }
+
+  /** Makes no Tapetide call; reports a pause after a quota, plan-expired or rejected-token answer. */
+  getStatus(): Observable<TapetideStatus> {
+    return this.http.get<TapetideStatus>(this.statusUrl);
   }
 }

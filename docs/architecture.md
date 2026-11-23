@@ -22,7 +22,7 @@ flowchart LR
 | Backend shape | One Java modular monolith | Two Spring Boot services sharing one database: `folio-portfolio-api` (watchlists, portfolios) and `folio-market-feed-svc` (market data, news digests) |
 | Watchlist schema | `watchlist` + `watchlist_item` referencing `instrument`, UUID keys | Split by market: `watchlists_usa` / `watchlists_india` and `watchlist_items_usa` / `watchlist_items_india`; numeric IDs from one shared sequence; `user_id` and `is_favorite` on both watchlist tables; items store symbol and name only (no instrument table) |
 | User preferences | — | `watchlist_column_preferences` (columns and order per user), shared by both watchlist pages |
-| Market data | Provider adapter inside the monolith, values carry source/asOf | `folio-market-feed-svc` caches FMP profiles (US) and Tapetide datasets (India) in PostgreSQL; the UI fetches them per symbol and maps them to table columns. Market cap is not stored with watchlist items, so sorting by it happens in the UI |
+| Market data | Provider adapter inside the monolith, values carry source/asOf | `folio-market-feed-svc` caches FMP profiles (US) and Tapetide datasets (India) in PostgreSQL; the UI fetches them per symbol and maps them to table columns. India prices come from Upstox quotes or Tapetide, whichever is newer, and rows can show their price source and time. When Tapetide is paused (quota or plan), its saved fundamentals are shown. Market cap is not stored with watchlist items, so sorting by it happens in the UI |
 | Identity | Authentication before personal data | None. Every call uses user `1` (`environment.currentUserId`); services are development-only |
 | Watchlist ordering | — | API lists favorites first, then by ID; the UI sorts stocks by market cap (largest first) by default |
 
@@ -271,3 +271,4 @@ Until these are decided, label relevant functionality as prototype/sample and av
 | 2026-11-15 | Favorite watchlists persisted in `is_favorite` and listed first by the API. | Implemented (V7) |
 | 2026-11-15 | Legacy `/api/v1/preferences` and `user_preferences` removed in favour of column preferences and `is_favorite`. | Implemented (V8) |
 | 2026-11-15 | Default market-cap sort done in the UI, not the API, because the watchlist service has no market data. | Implemented; backend sort available as a best-effort option |
+| 2026-11-22 | India page uses Upstox quotes as the price fallback; folio-market-feed-svc pauses Tapetide after quota or plan-expired answers and serves saved fundamentals. No other configured provider covers Indian fundamentals on its current plan (FMP 402, Finnhub 403, Alpha Vantage premium-only). | Implemented |
