@@ -3,8 +3,8 @@
 Angular 22 front end for a personal wealth and market-research workspace: a dark, charcoal UI with blue
 highlights and warm-yellow accents.
 
-The **US and India watchlist pages** use real backend data. Every other screen (dashboard, portfolio,
-stock screener, IPO, crypto, profile, settings) still shows mock data from
+The **dashboard** and the **US and India watchlist pages** use real backend data. Every other screen
+(portfolio, stock screener, IPO, crypto, profile, settings) still shows mock data from
 `core/services/wealth.service.ts`. Login is a UI prototype only; there is no authentication, and every
 backend call acts as user `1`. Nothing on any screen is investment advice.
 
@@ -13,7 +13,7 @@ backend call acts as user `1`. Nothing on any screen is investment advice.
 | Route | Screen | Data |
 |---|---|---|
 | `/login`, `/register` | Sign-in / sign-up prototype | none (not connected) |
-| `/dashboard` | Ideas dashboard | mock |
+| `/dashboard` | Ideas dashboard | live: folio-portfolio-api (monthly entries, holdings) + FMP and Upstox prices via folio-market-feed-svc |
 | `/portfolio`, `/stocks`, `/ipo`, `/crypto` | Portfolio, stock screener, IPO pipeline, crypto | mock |
 | `/watchlists/us` | **US watchlist** (`/watchlists` redirects here) | live: folio-portfolio-api + FMP via folio-market-feed-svc |
 | `/watchlists/india` | **India watchlist** | live: folio-portfolio-api + Tapetide and Upstox via folio-market-feed-svc |
@@ -34,6 +34,29 @@ digest (`POST /api/digest/run`, asks for confirmation), NSE symbol sync (`POST /
 sync (`POST /api/us/nasdaq/sync`). Other actions: health checks for both services. To add a call, add an entry
 to `ADMIN_ACTIONS` in `src/app/core/models/admin-actions.ts` (and its path prefix to `proxy.conf.json` if it
 is a new 8082 path).
+
+### Dashboard
+
+US (USD) and India (INR) are separate everywhere and never converted or added together.
+
+- **Monthly portfolio** (summary cards, growth, allocation, All portfolios): every **Edit** opens the same popup for
+  that country. Pick a month (not in the future) and enter *Invested* (total cost still held) and *Current value* for
+  each asset type. **＋ Add asset type** adds your own type and every type name can be edited; new and renamed types
+  are kept per country and apply to every month. **＋ Sub asset type** adds any number of named entries (Home, Rental
+  flat, …) under an asset type, which then shows their total; in one month an asset type has either its own amounts or
+  sub asset type amounts. Types are never deleted: **Hide** keeps them in saved months and leaves them out of new ones,
+  and **Show hidden types** brings them back. A month with no data is filled in from the latest earlier month until saved. Saving replaces
+  that country's month and stores the types in one request (`PUT /api/v1/users/{userId}/portfolio-entries/{US|India}/months/{yyyy-MM}`); totals,
+  allocation, profit and monthly return come from `GET …/portfolio-entries/{US|India}/summary`.
+- *Monthly return* is the change in profit divided by the previous calendar month's value, so new money is not
+  counted as a gain. It is `—` without the previous month. Realized profit from sales is not tracked, and an asset
+  added with an existing gain counts that gain in the month it is added.
+- **US / India stocks & ETFs**: symbol, quantity and average cost are saved in 8081
+  (`/api/v1/users/{userId}/stock-holdings/{US|India}`); the browser adds prices from `POST /api/fmp/profiles` (US) and
+  `GET /api/india/upstox/quotes` (India) and calculates value and profit (`holding-calculations.ts`). US prices
+  refresh at most once a day and use the FMP quota shared with the US watchlist. India prices are live and reload
+  every 60 seconds while the tab is visible and NSE is in normal hours. Holdings without a price show `—` and are
+  left out of the totals. These widgets are not included in the monthly net worth.
 
 ### Watchlist pages
 
@@ -79,12 +102,12 @@ is a new 8082 path).
 
 ## Running locally
 
-The watchlist pages need all three services:
+The dashboard and watchlist pages need all three services:
 
 | Service | Repo | Port | Start |
 |---|---|---|---|
 | Angular UI | this repo | 4200 | `npm install` then `npm start` |
-| Watchlists API | `../folio-portfolio-api` | 8081 | IntelliJ or `mvn spring-boot:run` |
+| Portfolio and watchlists API | `../folio-portfolio-api` | 8081 | IntelliJ or `mvn spring-boot:run` |
 | Market data (FMP, Tapetide) | `../folio-market-feed-svc` | 8082 | IntelliJ or `mvn spring-boot:run` |
 
 Both backends use the shared PostgreSQL database `folio_pro`. Open http://localhost:4200.
@@ -126,6 +149,9 @@ src/
       upstox-quotes.service.ts                 India live quotes (price fallback) via /api/india (8082)
       nse-symbols.service.ts                   NSE ticker/name search via /api/india (8082)
       us-symbols.service.ts                    US ticker/name search via /api/us (8082)
+      portfolio-entries.service.ts             monthly portfolio entries and summary (8081)
+      stock-holdings.service.ts                held stocks and ETFs (8081)
+      holding-prices.service.ts                prices of holdings (FMP, Upstox; 8082)
       wealth.service.ts                        mock data for the other screens
     features/             one standalone component per screen
     shared/components/    ShellComponent (top nav + rail), auth shell, metric card

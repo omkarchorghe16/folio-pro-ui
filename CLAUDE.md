@@ -37,7 +37,7 @@ npx tsc --noEmit -p tsconfig.app.json --noUnusedLocals --noUnusedParameters
 
 ## Related repositories (siblings in ../)
 
-- `folio-portfolio-api` (8081): watchlists, favorites, CSV import, column preferences. Flyway
+- `folio-portfolio-api` (8081): portfolio entries, stock holdings, watchlists, favorites, CSV import, column preferences. Flyway
   migrations; keep its H2 `test-schema.sql` in step.
 - `folio-market-feed-svc` (8082): FMP (US) and Tapetide/Upstox (India) market data under `/api/fmp` and
   `/api/india`.

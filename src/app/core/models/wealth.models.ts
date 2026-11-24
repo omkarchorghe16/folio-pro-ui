@@ -160,27 +160,6 @@ export interface PortfolioSummary {
   riskScore: number;
 }
 
-export interface AssetAllocation {
-  name: string;
-  percent: number;
-}
-
-export interface CountryPortfolio {
-  country: string;
-  currency: 'USD' | 'INR';
-  totalValue: string;
-  allocations: AssetAllocation[];
-}
-
-export interface PortfolioOverview {
-  name: string;
-  country: string;
-  type: string;
-  value: string;
-  profit: string;
-  tone: 'up' | 'down';
-}
-
 export interface WatchlistGroup {
   id: string;
   name: string;

@@ -1,10 +1,7 @@
 import { Injectable } from '@angular/core';
 import {
   CryptoAsset,
-  CountryPortfolio,
   Holding,
-  MetricCardModel,
-  PortfolioOverview,
   PortfolioSummary,
   StockAsset,
   WatchlistGroup,
@@ -25,65 +22,6 @@ export class WealthService {
     };
   }
 
-  getMetricCards(): MetricCardModel[] {
-    return [
-      { title: 'Total net worth', value: '$1.28M', change: 'USD equivalent', tone: 'neutral', detail: 'US + India · sample values' },
-      { title: 'Total profit', value: '+$216.4K', change: '+20.3%', tone: 'up', detail: 'all-time unrealized · sample' },
-      { title: "Today's profit", value: '+$18.45K', change: '+1.46%', tone: 'up', detail: 'across portfolios · sample' },
-      { title: 'Monthly return', value: '+12.8%', change: 'This month', tone: 'up', detail: 'sample performance only' },
-    ];
-  }
-
-  getCountryPortfolios(): CountryPortfolio[] {
-    return [
-      {
-        country: 'United States',
-        currency: 'USD',
-        totalValue: '$1,284,600',
-        allocations: [
-          { name: 'Stocks', percent: 24 },
-          { name: 'Mutual funds', percent: 10 },
-          { name: 'ETFs', percent: 14 },
-          { name: 'Residential property', percent: 10 },
-          { name: 'Commercial property', percent: 7 },
-          { name: 'Land', percent: 4 },
-          { name: 'REITs', percent: 6 },
-          { name: 'Bonds / fixed income', percent: 9 },
-          { name: 'Cash', percent: 7 },
-          { name: 'Crypto', percent: 5 },
-          { name: 'Gold / commodities', percent: 4 },
-        ],
-      },
-      {
-        country: 'India',
-        currency: 'INR',
-        totalValue: '₹84,60,000',
-        allocations: [
-          { name: 'Stocks', percent: 20 },
-          { name: 'Mutual funds', percent: 18 },
-          { name: 'ETFs', percent: 5 },
-          { name: 'Residential property', percent: 14 },
-          { name: 'Commercial property', percent: 8 },
-          { name: 'Land', percent: 10 },
-          { name: 'REITs', percent: 4 },
-          { name: 'Bonds / fixed income', percent: 8 },
-          { name: 'Cash / fixed deposits', percent: 5 },
-          { name: 'Crypto', percent: 2 },
-          { name: 'Gold / commodities', percent: 6 },
-        ],
-      },
-    ];
-  }
-
-  getPortfolioOverviews(): PortfolioOverview[] {
-    return [
-      { name: 'Core investment account', country: 'United States', type: 'Stocks & ETFs', value: '$642,800', profit: '+$84,200', tone: 'up' },
-      { name: 'Property portfolio', country: 'United States', type: 'Real estate & land', value: '$418,000', profit: '+$62,500', tone: 'up' },
-      { name: 'Long-term funds', country: 'India', type: 'Mutual funds', value: '₹32,40,000', profit: '+₹4,82,000', tone: 'up' },
-      { name: 'India property & equity', country: 'India', type: 'Property & stocks', value: '₹52,20,000', profit: '+₹6,30,000', tone: 'up' },
-    ];
-  }
-
   getTopStocks(): StockAsset[] {
     return [
       { symbol: 'AAPL', name: 'Apple', price: 214.22, change: 2.91, sector: 'Technology', score: 82, volume: '42.3M' },
@@ -93,14 +31,6 @@ export class WealthService {
       { symbol: 'TSLA', name: 'Tesla', price: 248.70, change: -2.35, sector: 'Automotive', score: 72, volume: '76.2M' },
       { symbol: 'META', name: 'Meta Platforms', price: 538.90, change: -1.20, sector: 'Technology', score: 85, volume: '14.7M' },
     ];
-  }
-
-  getTopGainers(): StockAsset[] {
-    return this.getTopStocks().filter((stock) => stock.change > 0).sort((a, b) => b.change - a.change).slice(0, 3);
-  }
-
-  getTopLosers(): StockAsset[] {
-    return this.getTopStocks().filter((stock) => stock.change < 0).sort((a, b) => a.change - b.change).slice(0, 3);
   }
 
   getPortfolioHoldings(): Holding[] {

@@ -1,5 +1,4 @@
 import { Routes } from '@angular/router';
-import { DashboardComponent } from './features/dashboard/dashboard.component';
 import { LoginComponent } from './features/login/login.component';
 import { RegisterComponent } from './features/register/register.component';
 import { PortfolioComponent } from './features/portfolio/portfolio.component';
@@ -15,7 +14,12 @@ export const routes: Routes = [
   { path: '', redirectTo: 'login', pathMatch: 'full' },
   { path: 'login', component: LoginComponent },
   { path: 'register', component: RegisterComponent },
-  { path: 'dashboard', component: DashboardComponent },
+  {
+    // Loaded on demand to keep the initial bundle within its budget.
+    path: 'dashboard',
+    loadComponent: () => import('./features/dashboard/dashboard.component').then((module) => module.DashboardComponent),
+    title: 'Dashboard',
+  },
   { path: 'portfolio', component: PortfolioComponent },
   { path: 'stocks', component: StocksComponent },
   { path: 'ipo', component: IpoComponent },

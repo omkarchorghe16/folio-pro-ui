@@ -6,11 +6,11 @@
 
 ## 0. What is built today
 
-Only the watchlist feature is connected to backends. Other screens use mock data.
+The dashboard and the watchlist feature are connected to backends. Other screens use mock data.
 
 ```mermaid
 flowchart LR
-    Browser[Angular UI :4200\n/watchlists/us · /watchlists/india] -->|/api/v1/* direct, CORS| Inv[folio-portfolio-api :8081\nwatchlists · favorites · CSV import · column prefs]
+    Browser[Angular UI :4200\n/dashboard · /watchlists/us · /watchlists/india] -->|/api/v1/* direct, CORS| Inv[folio-portfolio-api :8081\nwatchlists · favorites · CSV import · column prefs\nportfolio entries · stock holdings]
     Browser -->|/api/fmp, /api/india via ng serve proxy| News[folio-market-feed-svc :8082\nFMP · Tapetide · Upstox · news digests]
     Inv -->|Flyway-managed tables| DB[(PostgreSQL folio_pro)]
     News -->|Hibernate ddl-auto tables, cached provider JSON| DB
@@ -21,6 +21,8 @@ flowchart LR
 |---|---|---|
 | Backend shape | One Java modular monolith | Two Spring Boot services sharing one database: `folio-portfolio-api` (watchlists, portfolios) and `folio-market-feed-svc` (market data, news digests) |
 | Watchlist schema | `watchlist` + `watchlist_item` referencing `instrument`, UUID keys | Split by market: `watchlists_usa` / `watchlists_india` and `watchlist_items_usa` / `watchlist_items_india`; numeric IDs from one shared sequence; `user_id` and `is_favorite` on both watchlist tables; items store symbol and name only (no instrument table) |
+| Monthly portfolio | Ledger transactions, derived holdings | `portfolio_entries_usa` / `portfolio_entries_india`: one hand-entered row per user, month and asset type (invested, current value) with fixed country and currency. Totals, allocation and monthly return are calculated by the API, not stored. Users can rename the 11 default asset types and add their own (`portfolio_asset_types_usa` / `portfolio_asset_types_india`, V11); entries refer to a fixed code. One asset type has many sub asset types (`portfolio_sub_asset_types_usa` / `portfolio_sub_asset_types_india`, V12) through a foreign key that includes `user_id`; an entry may refer to one. Types are hidden (`is_hidden`, V13), never deleted, so past months keep them |
+| Stock holdings | Derived from ledger transactions | `stock_holdings_usa` / `stock_holdings_india`: symbol, quantity, average cost. The UI joins them with prices by symbol (`fmp_stock_profiles`) or symbol and exchange (`upstox_stock_quotes`) through the existing 8082 endpoints; no foreign keys to those tables |
 | User preferences | — | `watchlist_column_preferences` (columns and order per user), shared by both watchlist pages |
 | Market data | Provider adapter inside the monolith, values carry source/asOf | `folio-market-feed-svc` caches FMP profiles (US) and Tapetide datasets (India) in PostgreSQL; the UI fetches them per symbol and maps them to table columns. India prices come from Upstox quotes or Tapetide, whichever is newer, and rows can show their price source and time. When Tapetide is paused (quota or plan), its saved fundamentals are shown. Market cap is not stored with watchlist items, so sorting by it happens in the UI |
 | Identity | Authentication before personal data | None. Every call uses user `1` (`environment.currentUserId`); services are development-only |
@@ -272,3 +274,4 @@ Until these are decided, label relevant functionality as prototype/sample and av
 | 2026-11-15 | Legacy `/api/v1/preferences` and `user_preferences` removed in favour of column preferences and `is_favorite`. | Implemented (V8) |
 | 2026-11-15 | Default market-cap sort done in the UI, not the API, because the watchlist service has no market data. | Implemented; backend sort available as a best-effort option |
 | 2026-11-22 | India page uses Upstox quotes as the price fallback; folio-market-feed-svc pauses Tapetide after quota or plan-expired answers and serves saved fundamentals. No other configured provider covers Indian fundamentals on its current plan (FMP 402, Finnhub 403, Alpha Vantage premium-only). | Implemented |
+| 2026-11-23 | Dashboard uses hand-entered monthly snapshots per asset type plus current stock holdings, in separate USA and India tables, instead of the planned ledger. Holdings are valued in the UI from existing price endpoints and kept out of net worth to avoid double counting. | Implemented (V9–V10); realized profit not tracked |

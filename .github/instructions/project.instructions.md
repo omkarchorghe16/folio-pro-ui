@@ -9,7 +9,8 @@ dev-standards) also apply; where this file is more specific, it wins. Edit this 
 
 ## Backends
 
-- `folio-portfolio-api` (8081): watchlists, favorites, CSV import, column preferences. URLs
+- `folio-portfolio-api` (8081): monthly portfolio entries, stock holdings, watchlists, favorites, CSV import,
+  column preferences. URLs
   come from `environment.apiBaseUrl`.
 - `folio-market-feed-svc` (8082): FMP (US) and Tapetide/Upstox (India) market data, US symbol search and digests under the relative
   `/api/fmp`, `/api/india`, `/api/us` and `/api/digest` paths served by the dev proxy (`proxy.conf.json`).
@@ -17,7 +18,9 @@ dev-standards) also apply; where this file is more specific, it wins. Edit this 
 - India page: fundamentals from Tapetide (`/api/india/tapetide/profile`), prices from Upstox
   (`/api/india/upstox/quotes`, `UpstoxQuotesService`) or Tapetide, whichever is newer
   (`withNewestIndiaPrice`). `/api/india/tapetide/status` reports when the backend has paused Tapetide.
-- The US and India watchlist pages use real backend data. All other screens use mock data from
+- Dashboard: US and India amounts are never converted or added together. Stock holdings are valued in the browser
+  (`holding-calculations.ts`) and stay out of the monthly net worth.
+- The dashboard and the US and India watchlist pages use real backend data. All other screens use mock data from
   `core/services/wealth.service.ts`.
 
 ## Components
