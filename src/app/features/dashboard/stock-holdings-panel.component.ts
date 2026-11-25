@@ -27,8 +27,8 @@ const INDIA_REFRESH_MS = 60_000;
     <section class="card holdings-panel" [attr.aria-labelledby]="headingId()">
       <div class="holdings-header">
         <div>
-          <span class="eyebrow">{{ market() }} · {{ currency() }} · not included in net worth</span>
-          <h2 [id]="headingId()">{{ market() }} stocks &amp; ETFs</h2>
+          <span class="eyebrow">{{ currency() }} · detail view, not added to net worth</span>
+          <h2 [id]="headingId()">{{ market() }} stocks &amp; ETFs portfolio</h2>
           <p class="price-note">{{ priceNote() }}</p>
         </div>
         <div class="holdings-actions">
@@ -52,8 +52,8 @@ const INDIA_REFRESH_MS = 60_000;
           <table>
             <thead>
               <tr>
-                <th>Symbol</th><th>Name</th><th>Type</th><th>Sector</th><th>Country</th><th>Currency</th><th class="num">Quantity</th>
-                <th class="num">Avg cost</th><th class="num">Invested</th><th class="num">{{ market() === 'India' ? 'Live price' : 'Price' }}</th><th class="num">Day</th>
+                <th>Symbol</th><th>Name</th><th>Type</th><th>Sector</th><th class="num">Quantity</th>
+                <th class="num">Avg buy price</th><th class="num">Invested</th><th class="num">{{ market() === 'India' ? 'Live price' : 'Price' }}</th><th class="num">Day change</th>
                 <th class="num">Current value</th><th class="num">Profit</th><th class="num">Profit %</th><th>Actions</th>
               </tr>
             </thead>
@@ -64,8 +64,6 @@ const INDIA_REFRESH_MS = 60_000;
                   <td class="name">{{ row.holding.name }}</td>
                   <td>{{ row.holding.assetType === 'ETF' ? 'ETF' : 'Stock' }}</td>
                   <td>{{ row.holding.sector || missing }}</td>
-                  <td>{{ row.holding.country }}</td>
-                  <td>{{ row.holding.currency }}</td>
                   <td class="num">{{ quantity(row.holding.quantity) }}</td>
                   <td class="num">{{ money(row.holding.averageCost) }}</td>
                   <td class="num">{{ money(row.invested) }}</td>
@@ -86,7 +84,7 @@ const INDIA_REFRESH_MS = 60_000;
             @if (totals(); as total) {
               <tfoot>
                 <tr>
-                  <td colspan="8"><strong>Total</strong>
+                  <td colspan="6"><strong>Total</strong>
                     @if (total.valuedCount < total.count) {
                       <span class="price-note"> · {{ total.count - total.valuedCount }} of {{ total.count }} have no price or quantity and are left out</span>
                     }
@@ -119,7 +117,6 @@ const INDIA_REFRESH_MS = 60_000;
     .holdings-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:16px; }
     .holdings-header h2 { margin:7px 0 0; font-size:1.2rem; }
     .holdings-actions,.row-actions { display:flex; gap:7px; }
-    .row-actions { flex-direction:column; }
     .price-note { margin:6px 0 0; color:var(--muted); font-size:.74rem; }
     .num { text-align:right; white-space:nowrap; }
     .name { min-width:105px; }

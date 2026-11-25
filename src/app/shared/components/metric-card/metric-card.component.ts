@@ -8,7 +8,7 @@ import { Component, Input } from '@angular/core';
   template: `
     <div class="metric-card card">
       <div class="metric-card__label">{{ title }}</div>
-      <div class="metric-card__value">{{ value }}</div>
+      <div class="metric-card__value" [ngClass]="valueTone">{{ value }}</div>
       <div class="metric-card__meta">
         <span class="badge" [ngClass]="tone">{{ change }}</span>
         <span class="metric-card__detail">{{ detail }}</span>
@@ -23,8 +23,10 @@ import { Component, Input } from '@angular/core';
       .metric-card__value { font-size: clamp(1.7rem, 2vw, 2.2rem); font-weight: 800; margin: 12px 0 10px; }
       .metric-card__meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
       .metric-card__detail { color: var(--muted); font-size: 0.76rem; }
-      .badge.up { background: rgba(52, 211, 153, 0.12); color: var(--primary); }
-      .badge.down { background: rgba(248, 113, 113, 0.12); color: var(--danger); }
+      .metric-card__value.up { color: var(--positive); }
+      .metric-card__value.down { color: var(--negative); }
+      .badge.up { background: rgba(52, 211, 153, 0.12); color: var(--positive); }
+      .badge.down { background: rgba(248, 113, 113, 0.12); color: var(--negative); }
       .badge.neutral { background: rgba(96, 165, 250, 0.12); color: var(--accent); }
     `,
   ],
@@ -34,5 +36,7 @@ export class MetricCardComponent {
   @Input() value = '';
   @Input() change = '';
   @Input() tone: 'up' | 'down' | 'neutral' = 'neutral';
+  /** Colors the number itself. */
+  @Input() valueTone: 'up' | 'down' | 'neutral' = 'neutral';
   @Input() detail = '';
 }

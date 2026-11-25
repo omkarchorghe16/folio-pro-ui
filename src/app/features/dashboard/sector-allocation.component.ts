@@ -13,8 +13,8 @@ import { AllocationBasis, HoldingsState } from './sector-allocation-calculations
     <section aria-labelledby="sector-allocation-heading">
       <div class="heading">
         <div>
-          <span class="eyebrow">Stocks &amp; ETFs</span>
-          <h2 id="sector-allocation-heading">Sector allocation</h2>
+          <span class="eyebrow">US and India</span>
+          <h2 id="sector-allocation-heading">Stocks &amp; ETFs portfolio by sector</h2>
         </div>
         <div class="basis" role="group" aria-label="Amounts to show">
           <button type="button" [attr.aria-pressed]="basis() === 'invested'" (click)="basis.set('invested')">Invested</button>

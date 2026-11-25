@@ -13,7 +13,7 @@ backend call acts as user `1`. Nothing on any screen is investment advice.
 | Route | Screen | Data |
 |---|---|---|
 | `/login`, `/register` | Sign-in / sign-up prototype | none (not connected) |
-| `/dashboard` | Ideas dashboard | live: folio-portfolio-api (monthly entries, holdings) + FMP and Upstox prices via folio-market-feed-svc |
+| `/dashboard` | Dashboard | live: folio-portfolio-api (monthly entries, holdings) + FMP and Upstox prices via folio-market-feed-svc |
 | `/portfolio`, `/stocks`, `/ipo`, `/crypto` | Portfolio, stock screener, IPO pipeline, crypto | mock |
 | `/watchlists/us` | **US watchlist** (`/watchlists` redirects here) | live: folio-portfolio-api + FMP via folio-market-feed-svc |
 | `/watchlists/india` | **India watchlist** | live: folio-portfolio-api + Tapetide and Upstox via folio-market-feed-svc |
@@ -39,7 +39,7 @@ is a new 8082 path).
 
 US (USD) and India (INR) are separate everywhere and never converted or added together.
 
-- **Portfolio** (summary cards, allocation, All portfolios, and growth at the end of the page): every **Edit** opens the same popup for
+- **Portfolio** (summary cards, Portfolio allocation, All portfolios, and growth at the end of the page): every **Edit** opens the same popup for
   that country. Enter *Invested* (total cost still held) and *Current value* for
   each asset type; there is no month or year to pick. Amounts are stored as the current calendar month, and the growth
   chart and *Monthly return* use those monthly snapshots. Earlier months stay saved but cannot be edited here. **＋ Add asset type** adds your own type and every type name can be edited; new and renamed types
@@ -49,7 +49,7 @@ US (USD) and India (INR) are separate everywhere and never converted or added to
   and **Show hidden types** brings them back. In a new calendar month the popup is filled in from the latest saved amounts. Saving replaces
   that country's current month and stores the types in one request (`PUT /api/v1/users/{userId}/portfolio-entries/{US|India}/months/{yyyy-MM}`); totals,
   allocation, profit and monthly return come from `GET …/portfolio-entries/{US|India}/summary`.
-- **Asset allocation by country**: **View** opens a popup with every asset type and sub asset type of that country
+- **Portfolio allocation**: **View** opens a popup with every asset type and sub asset type of that country
   (invested, current value, profit, share of the country's value) and **Edit** and a trash icon on each row.
 - **Delete** (trash icon in the View and Edit popups; immediate after a confirm in View, with Save in Edit) removes the
   current amounts of an asset type, with its sub asset types, or of a sub asset type, and hides it. The API has no type
@@ -57,13 +57,15 @@ US (USD) and India (INR) are separate everywhere and never converted or added to
 - **All portfolios**: one table for the US and one for India. Asset type rows show the number of their sub asset types;
   sub asset type rows below them are muted, with a ↳ and an empty *Asset type* cell. An asset type with sub asset types
   is their total, so it has no **Edit** (here and in View); its sub asset types do.
+- Net worth is green when it is more than invested and red when it is less; Total profit and Monthly return follow their
+  sign.
 - *Monthly return* is the change in profit divided by the previous calendar month's value, so new money is not
   counted as a gain. It is `—` without the previous month. Realized profit from sales is not tracked, and an asset
   added with an existing gain counts that gain in the month it is added.
-- **Sector allocation** (US and India side by side, above the stocks & ETFs tables and from the same rows): money and
+- **Stocks & ETFs portfolio by sector** (US and India side by side, above the stocks & ETFs tables and from the same rows): money and
   percentage per sector, largest first; a sector opens to its stocks. *Invested* (quantity × average cost) or *Current
   value*. Holdings without a quantity (or, for current value, a price) are named and not counted.
-- **US / India stocks & ETFs**: **＋ Add** searches tickers and company names in a dropdown (NSE or US symbol
+- **US / India stocks & ETFs portfolio**: **＋ Add** searches tickers and company names in a dropdown (NSE or US symbol
   directory, as on the watchlist pages). **Sector** has a separate list per country from table
   `sectors` (`GET /api/sectors?market=US|INDIA`, 8082; fill it with `scripts/seed-sectors.sql` there). The sectors a stock
   is in come from `GET /api/stocks?ticker=` (8082) for the US and the user's India watchlists (8081) for India. A default is filled in. ETF: the sector it was listed under

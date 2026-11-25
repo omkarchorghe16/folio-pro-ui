@@ -3,6 +3,7 @@ export interface MetricCardModel {
   value: string;
   change: string;
   tone: 'up' | 'down' | 'neutral';
+  valueTone: 'up' | 'down' | 'neutral';
   detail: string;
 }
 

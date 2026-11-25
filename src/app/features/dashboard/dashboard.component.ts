@@ -53,17 +53,17 @@ interface EntryDialogTarget {
       <div class="page-shell">
         <div class="page-header">
           <div>
-            <h1>Dashboard</h1>
-            <p>Your wealth overview across US and India portfolios.</p>
+            <h1>Portfolio dashboard</h1>
+            <p>Your US and India portfolios, each in its own currency.</p>
           </div>
-          <span class="data-note">Values you entered · stock prices from market data</span>
+          <span class="data-note">Portfolio values as you entered them · stock prices from market data</span>
         </div>
 
         <section *ngFor="let country of countries; trackBy: trackMarket" [attr.aria-labelledby]="'summary-' + country.market">
           <div class="section-heading">
             <div>
               <span class="eyebrow">{{ country.currency }}</span>
-              <h2 [id]="'summary-' + country.market">{{ country.market }} portfolio</h2>
+              <h2 [id]="'summary-' + country.market">{{ country.market }} portfolio summary</h2>
             </div>
             <ng-container *ngTemplateOutlet="editButton; context: { $implicit: country.market, label: 'summary' }"></ng-container>
           </div>
@@ -75,6 +75,7 @@ interface EntryDialogTarget {
               [change]="card.change"
               [detail]="card.detail"
               [tone]="card.tone"
+              [valueTone]="card.valueTone"
             ></app-metric-card>
           </div>
           <p class="state-note text-success" role="status" *ngIf="country.saved">Saved {{ country.market }} changes.</p>
@@ -92,10 +93,10 @@ interface EntryDialogTarget {
         <section class="allocation-section" aria-labelledby="allocation-heading">
           <div class="section-heading">
             <div>
-              <span class="eyebrow">Portfolio breakdown</span>
-              <h2 id="allocation-heading">Asset allocation by country</h2>
+              <span class="eyebrow">US and India</span>
+              <h2 id="allocation-heading">Portfolio allocation</h2>
             </div>
-            <p>Share of each country's current value, in its own currency.</p>
+            <p>Share of each portfolio's current value, in its own currency.</p>
           </div>
           <div class="country-grid">
             <section class="card country-card" *ngFor="let country of countries; trackBy: trackMarket">
@@ -136,7 +137,7 @@ interface EntryDialogTarget {
             <h3>{{ country.market }} portfolio <span class="eyebrow">{{ country.currency }}</span></h3>
             <app-asset-breakdown-table *ngIf="country.summary?.assets?.length; else noAssets"
               [market]="country.market" [assets]="country.summary!.assets" [editable]="true"
-              [label]="'All ' + country.market + ' portfolios table'"
+              [label]="country.market + ' portfolio table'"
               (edit)="openEntryDialog(country.market, $event)"></app-asset-breakdown-table>
             <ng-template #noAssets><p class="state-note">{{ emptyText(country) }}</p></ng-template>
           </div>
@@ -151,7 +152,7 @@ interface EntryDialogTarget {
             [attr.aria-labelledby]="'growth-' + country.market">
             <div class="panel-header split">
               <div>
-                <span class="eyebrow">Portfolio performance · {{ country.currency }}</span>
+                <span class="eyebrow">Portfolio value, last 12 months · {{ country.currency }}</span>
                 <h2 [id]="'growth-' + country.market">{{ country.market }} portfolio growth</h2>
               </div>
               <div class="panel-side">
@@ -309,11 +310,14 @@ export class DashboardComponent implements OnInit {
       return [];
     }
     const hasMonthlyReturn = totals.monthlyReturnPercent !== null && totals.monthlyReturnPercent !== undefined;
+    const profitTone = this.tone(totals.profit);
+    const returnTone = this.tone(totals.monthlyReturnPercent);
+    const comparedToInvested = { up: 'more than invested', down: 'less than invested', neutral: 'same as invested' }[profitTone];
     return [
-      { title: 'Net worth', value: formatMoney(totals.currentValue, currency), change: currency, tone: 'neutral', detail: 'current value' },
-      { title: 'Total invested', value: formatMoney(totals.investedAmount, currency), change: currency, tone: 'neutral', detail: 'cost of what you hold' },
-      { title: 'Total profit', value: formatSignedMoney(totals.profit, currency), change: formatSignedPercent(totals.profitPercent), tone: this.tone(totals.profit), detail: 'value minus invested' },
-      { title: 'Monthly return', value: formatSignedPercent(totals.monthlyReturnPercent), change: currency, tone: this.tone(totals.monthlyReturnPercent), detail: hasMonthlyReturn ? 'without new money' : 'needs the previous month' },
+      { title: 'Net worth', value: formatMoney(totals.currentValue, currency), change: currency, tone: 'neutral', valueTone: profitTone, detail: comparedToInvested },
+      { title: 'Total invested', value: formatMoney(totals.investedAmount, currency), change: currency, tone: 'neutral', valueTone: 'neutral', detail: 'cost of what you hold' },
+      { title: 'Total profit', value: formatSignedMoney(totals.profit, currency), change: formatSignedPercent(totals.profitPercent), tone: profitTone, valueTone: profitTone, detail: 'value minus invested' },
+      { title: 'Monthly return', value: formatSignedPercent(totals.monthlyReturnPercent), change: currency, tone: 'neutral', valueTone: returnTone, detail: hasMonthlyReturn ? 'without new money' : 'needs the previous month' },
     ];
   }
 

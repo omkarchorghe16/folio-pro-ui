@@ -10,7 +10,7 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
       <header class="topbar">
         <a class="brand" routerLink="/dashboard"><span class="brand-mark">↗</span><span>Folio <b>Pro</b></span></a>
         <nav class="primary-nav" aria-label="Main navigation">
-          <a routerLink="/dashboard" routerLinkActive="active">Ideas dashboard</a>
+          <a routerLink="/dashboard" routerLinkActive="active">Dashboard</a>
           <a routerLink="/portfolio" routerLinkActive="active">Portfolio</a>
           <a routerLink="/stocks" routerLinkActive="active">Stock screener</a>
           <a routerLink="/ipo" routerLinkActive="active">IPO</a>
@@ -23,7 +23,7 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
       <div class="workspace" [class.workspace-wide-rail]="wideRail">
         <main class="main-panel"><ng-content></ng-content></main>
         <aside class="tool-rail" aria-label="Tracking tools">
-          <a routerLink="/dashboard">⌂<small>Ideas</small></a><a routerLink="/watchlists/us">☆<small>US List</small></a><a routerLink="/watchlists/india">☆<small>India List</small></a><a routerLink="/portfolio">◷<small>Portfolio</small></a><a routerLink="/stocks">☷<small>Screener</small></a><a routerLink="/settings">⚙<small>Settings</small></a><a routerLink="/admin" routerLinkActive="active" aria-label="Admin">⚒<small>Admin</small></a>
+          <a routerLink="/dashboard">⌂<small>Dashboard</small></a><a routerLink="/watchlists/us">☆<small>US List</small></a><a routerLink="/watchlists/india">☆<small>India List</small></a><a routerLink="/portfolio">◷<small>Portfolio</small></a><a routerLink="/stocks">☷<small>Screener</small></a><a routerLink="/settings">⚙<small>Settings</small></a><a routerLink="/admin" routerLinkActive="active" aria-label="Admin">⚒<small>Admin</small></a>
         </aside>
       </div>
     </div>
@@ -36,7 +36,7 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
     .primary-nav{display:flex;align-items:center;gap:22px;margin-left:auto}.primary-nav a{font-size:12px;color:#a6a6af;white-space:nowrap}.primary-nav a.active,.primary-nav a:hover{color:#f3ce68}
     .header-tools{display:flex;align-items:center;gap:11px}.search{height:34px;width:min(270px,25vw);display:flex;align-items:center;gap:8px;padding:0 10px;border:1px solid #3b3b40;border-radius:20px;background:#29292c;color:#c5c5ce}.search input{width:100%;border:0;outline:0;background:transparent;color:#eee;font-size:11px}.search span{font-size:19px}.icon-btn,.avatar{width:30px;height:30px;border:0;border-radius:50%;display:grid;place-items:center;background:#33343a;color:#f0c94f}.avatar{background:#ffbf20;color:#2a260e;font-weight:700}
     .workspace{display:grid;grid-template-columns:minmax(0,1fr) 52px;min-height:calc(100vh - 54px)}.workspace-wide-rail{grid-template-columns:minmax(0,1fr) 62px}.main-panel{min-width:0;padding:24px clamp(18px,4vw,70px)}.tool-rail{position:sticky;top:54px;height:calc(100vh - 54px);display:flex;flex-direction:column;align-items:center;gap:15px;padding:25px 5px;background:#1e1e20;border-left:1px solid #36363a}.tool-rail a{display:grid;justify-items:center;gap:3px;color:#a4a4ab;font-size:17px}.tool-rail small{font-size:9px}.tool-rail a.active,.tool-rail a:hover{color:#f3ce68}
-    @media(max-width:900px){.topbar{gap:12px;padding:0 14px}.primary-nav{gap:12px}.primary-nav a{font-size:11px}.search{width:34px}.search input{display:none}.main-panel{padding:18px}.workspace{grid-template-columns:minmax(0,1fr) 42px}.workspace-wide-rail{grid-template-columns:minmax(0,1fr) 52px}}
+    @media(max-width:900px){.topbar{gap:12px;padding:0 14px}.primary-nav{gap:12px}.primary-nav a{font-size:11px}.search{width:34px}.search input{display:none}.main-panel{padding:18px}.workspace{grid-template-columns:minmax(0,1fr) 50px}.workspace-wide-rail{grid-template-columns:minmax(0,1fr) 52px}}
     @media(max-width:620px){.topbar{height:auto;min-height:54px;flex-wrap:wrap;padding:10px 12px}.primary-nav{order:3;overflow:auto;width:100%;margin:0;padding:4px 0}.header-tools{margin-left:auto}.workspace{min-height:calc(100vh - 95px)}.tool-rail{top:95px;height:calc(100vh - 95px)}}
   `],
 })
