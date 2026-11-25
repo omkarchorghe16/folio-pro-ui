@@ -11,9 +11,9 @@ import {
 import { WatchlistMarket } from '../../core/models/wealth.models';
 import { apiErrorMessage } from '../../core/services/api-error';
 import { PortfolioEntriesService } from '../../core/services/portfolio-entries.service';
-import { currencySymbol, formatMoney, formatMonth, formatSignedMoney, gainClass, parseDecimal } from './dashboard-format';
+import { DeleteButtonComponent } from '../../shared/components/delete-button/delete-button.component';
+import { currencySymbol, currentMonth, formatMoney, formatSignedMoney, gainClass, parseDecimal } from './dashboard-format';
 
-const YEARS_OFFERED = 15;
 const MAX_INTEGER_DIGITS = 13;
 const MAX_FRACTION_DIGITS = 2;
 const MAX_NAME_LENGTH = 60;
@@ -27,9 +27,11 @@ interface AmountRow {
   name: string;
   /** Name in the database; empty for one that is not saved yet. */
   savedName: string;
-  /** Hidden ones are kept for past months but not offered for new ones. */
+  /** Hidden ones keep the amounts of past months but are not filled in again. */
   hidden: boolean;
   savedHidden: boolean;
+  /** Hidden with its amounts cleared by the delete icon; takes effect with the next save. */
+  deleted: boolean;
   invested: string;
   value: string;
 }
@@ -39,11 +41,11 @@ interface AssetRow extends AmountRow {
   subs: AmountRow[];
 }
 
-/** Edits one country's amounts for one month and saves the whole month. */
+/** Edits one country's current amounts. The backend stores them as the current calendar month; earlier months stay as they are. */
 @Component({
   selector: 'app-portfolio-entry-dialog',
   standalone: true,
-  imports: [NgTemplateOutlet],
+  imports: [NgTemplateOutlet, DeleteButtonComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <dialog #dialog class="dashboard-dialog wide" aria-labelledby="entry-dialog-title" (cancel)="requestClose($event)"
@@ -56,28 +58,11 @@ interface AssetRow extends AmountRow {
         <button type="button" class="dialog-close" aria-label="Close portfolio dialog" (click)="requestClose()">×</button>
       </header>
       <form (submit)="save($event)" novalidate>
-        <div class="month-row">
-          <label>Month
-            <select [disabled]="saving()" (change)="changeMonth($event)">
-              @for (name of monthNames; track $index) {
-                <option [value]="$index + 1" [selected]="$index + 1 === monthNumber()"
-                  [disabled]="year() === currentYear && $index + 1 > currentMonthNumber">{{ name }}</option>
-              }
-            </select>
-          </label>
-          <label>Year
-            <select [disabled]="saving()" (change)="changeYear($event)">
-              @for (option of years; track option) {
-                <option [value]="option" [selected]="option === year()">{{ option }}</option>
-              }
-            </select>
-          </label>
-        </div>
         <p class="dialog-note" role="status">{{ notice() }}</p>
         <div class="dialog-scroll">
           <table class="entry-table">
             <thead>
-              <tr><th>Asset type</th><th>Sub asset type</th><th>Invested ({{ symbol() }})</th><th>Current value ({{ symbol() }})</th></tr>
+              <tr><th>Asset type</th><th>Sub asset type</th><th>Invested ({{ symbol() }})</th><th>Current value ({{ symbol() }})</th><th aria-label="Delete"></th></tr>
             </thead>
             @for (row of visibleRows(); track row.code) {
               <tbody [class.is-hidden]="row.hidden">
@@ -96,6 +81,7 @@ interface AssetRow extends AmountRow {
                   } @else {
                     <ng-container *ngTemplateOutlet="amountFields; context: { $implicit: row, label: row.name }"></ng-container>
                   }
+                  <ng-container *ngTemplateOutlet="deleteCell; context: { $implicit: row, label: row.name || 'new asset type', parent: null }"></ng-container>
                 </tr>
                 @for (sub of visibleSubs(row); track sub.code) {
                   <tr class="sub-row" [class.is-hidden]="sub.hidden">
@@ -103,14 +89,11 @@ interface AssetRow extends AmountRow {
                     <th scope="row">
                       <span class="sub-name">
                         <ng-container *ngTemplateOutlet="nameField; context: { $implicit: sub, label: 'Sub asset type' }"></ng-container>
-                        @if (!sub.savedName) {
-                          <button type="button" class="remove-sub" [disabled]="saving()"
-                            [attr.aria-label]="'Remove new sub asset type ' + sub.name" (click)="removeSubAssetType(row, sub)">×</button>
-                        }
                         <ng-container *ngTemplateOutlet="hideButton; context: { $implicit: sub, label: row.name + ', ' + sub.name }"></ng-container>
                       </span>
                     </th>
                     <ng-container *ngTemplateOutlet="amountFields; context: { $implicit: sub, label: row.name + ', ' + sub.name }"></ng-container>
+                    <ng-container *ngTemplateOutlet="deleteCell; context: { $implicit: sub, label: row.name + ', ' + (sub.name || 'new sub asset type'), parent: row }"></ng-container>
                   </tr>
                 }
               </tbody>
@@ -122,6 +105,14 @@ interface AssetRow extends AmountRow {
             <button type="button" class="hide-button" [disabled]="!ready() || saving()"
               [attr.aria-label]="(item.hidden ? 'Show ' : 'Hide ') + label" (click)="toggleHidden(item)">{{ item.hidden ? 'Show' : 'Hide' }}</button>
           }
+        </ng-template>
+        <ng-template #deleteCell let-item let-label="label" let-parent="parent">
+          <td class="delete-cell">
+            @if (!isTuckedAway(item)) {
+              <app-delete-button [disabled]="!ready() || saving()" [label]="'Delete ' + label"
+                (pressed)="deleteRow(item, parent)"></app-delete-button>
+            }
+          </td>
         </ng-template>
         <ng-template #nameField let-item let-label="label">
           <input type="text" class="name-input" autocomplete="off" [placeholder]="label + ' name'"
@@ -141,7 +132,7 @@ interface AssetRow extends AmountRow {
             </td>
           }
         </ng-template>
-        <button type="button" class="secondary-button add-type" [disabled]="!ready() || saving()" (click)="addAssetType()">＋ Add asset type</button>
+        <button type="button" class="secondary-button add-type" id="entry-add-asset-type" [disabled]="!ready() || saving()" (click)="addAssetType()">＋ Add asset type</button>
         @if (hiddenCount()) {
           <button type="button" class="hide-button" [attr.aria-pressed]="showHidden()" (click)="showHidden.set(!showHidden())">
             {{ showHidden() ? 'Hide hidden types' : 'Show hidden types (' + hiddenCount() + ')' }}</button>
@@ -151,11 +142,11 @@ interface AssetRow extends AmountRow {
           Value <strong>{{ money(totals().value) }}</strong> ·
           Profit <strong [class]="gain(totals().value - totals().invested)">{{ signedMoney(totals().value - totals().invested) }}</strong>
         </p>
-        <p class="dialog-hint">Invested is the total cost of what you still hold. Leave both amounts blank for assets you do not hold. With sub asset types, an asset type is their total. New and renamed types apply to every month. Hide a type you no longer hold: it stays in saved months but is not offered for new ones.</p>
+        <p class="dialog-hint">Invested is the total cost of what you still hold. Leave both amounts blank for assets you do not hold. With sub asset types, an asset type is their total. The trash icon deletes a type and its amounts when you save; Show hidden types brings the type back.</p>
         @if (error()) { <p class="dialog-error" role="alert">{{ error() }}</p> }
         @if (loadFailed()) {
-          <p class="dialog-hint">Amounts are locked until this month loads, so that saved data is not overwritten.
-            <button type="button" class="secondary-button" (click)="loadMonth()">Try again</button></p>
+          <p class="dialog-hint">Amounts are locked until they load, so that saved data is not overwritten.
+            <button type="button" class="secondary-button" (click)="loadEntries()">Try again</button></p>
         }
         <footer class="dialog-actions">
           <button type="button" class="secondary-button" (click)="requestClose()">Cancel</button>
@@ -167,8 +158,6 @@ interface AssetRow extends AmountRow {
     </dialog>
   `,
   styles: [`
-    .month-row { display:flex; gap:12px; }
-    .month-row label { display:grid; gap:5px; color:var(--muted); font-size:.72rem; }
     .entry-table th,.entry-table td { padding:3px 8px; }
     .entry-table tbody th { color:var(--text); font-size:.78rem; text-transform:none; letter-spacing:0; }
     .entry-table input { width:100%; min-width:92px; text-align:right; }
@@ -178,7 +167,7 @@ interface AssetRow extends AmountRow {
     .sub-row > * { border-bottom:0; }
     .sub-row .indent { color:var(--muted); text-align:right; }
     .sub-name { display:flex; align-items:center; gap:4px; }
-    .remove-sub { border:0; background:transparent; color:var(--negative); font-size:1.1rem; line-height:1; }
+    .delete-cell { width:44px; }
     .hide-button { padding:6px 8px; border:0; background:transparent; color:var(--muted); font-size:.72rem; text-decoration:underline; text-underline-offset:3px; }
     .hide-button:hover { color:var(--text); }
     .is-hidden .name-input { color:var(--muted); font-style:italic; }
@@ -191,7 +180,8 @@ interface AssetRow extends AmountRow {
       .asset-row > * { border-top:0; }
       .entry-table tbody { border-top:1px solid var(--border); }
       .sub-row { margin-left:18px; }
-      .sub-row th { grid-column:1 / -1; }
+      .sub-row th,.delete-cell { grid-column:1 / -1; }
+      .delete-cell { width:auto; text-align:right; }
       .entry-table input,.entry-table .name-input { min-width:0; }
       td[data-label]::before { content:attr(data-label); display:block; color:var(--muted); font-size:.66rem; font-weight:400; text-align:left; }
     }
@@ -202,24 +192,15 @@ export class PortfolioEntryDialogComponent implements OnInit, AfterViewInit, OnD
   /** Asset type or sub asset type whose field gets focus when the dialog opens. */
   readonly focusCode = input<string | null>(null);
   readonly closed = output<void>();
-  /** Emits the saved month (yyyy-MM). */
-  readonly saved = output<string>();
+  readonly saved = output<void>();
 
   readonly maxNameLength = MAX_NAME_LENGTH;
   readonly amountFieldNames: AmountField[] = ['invested', 'value'];
-  readonly monthNames = Array.from({ length: 12 }, (_, index) =>
-    new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2000, index, 1))));
-  readonly currentYear = new Date().getFullYear();
-  readonly currentMonthNumber = new Date().getMonth() + 1;
-  readonly years = Array.from({ length: YEARS_OFFERED }, (_, index) => this.currentYear - index);
-
-  readonly year = signal(this.currentYear);
-  readonly monthNumber = signal(this.currentMonthNumber);
   readonly rows = signal<AssetRow[]>([]);
   readonly notice = signal('');
   readonly error = signal('');
   readonly saving = signal(false);
-  /** False until the month has loaded, so that a failed load cannot be saved over existing data. */
+  /** False until the amounts have loaded, so that a failed load cannot be saved over existing data. */
   readonly ready = signal(false);
   readonly loadFailed = signal(false);
   readonly showHidden = signal(false);
@@ -228,8 +209,6 @@ export class PortfolioEntryDialogComponent implements OnInit, AfterViewInit, OnD
 
   readonly currency = computed(() => currencyOf(this.market()));
   readonly symbol = computed(() => currencySymbol(this.currency()));
-  readonly month = computed(() => `${this.year()}-${String(this.monthNumber()).padStart(2, '0')}`);
-  readonly monthLabel = computed(() => formatMonth(this.month()));
   /** Hidden asset types are listed while they hold amounts, until the hiding is saved, or on request. */
   readonly visibleRows = computed(() => this.rows().filter((row) =>
     this.showHidden() || !this.isTuckedAway(row) || row.subs.some((sub) => !isBlank(sub))));
@@ -242,6 +221,8 @@ export class PortfolioEntryDialogComponent implements OnInit, AfterViewInit, OnD
   private readonly changeDetector = inject(ChangeDetectorRef);
   private readonly portfolioEntriesService = inject(PortfolioEntriesService);
   private readonly dialog = viewChild.required<ElementRef<HTMLDialogElement>>('dialog');
+  /** yyyy-MM, fixed while the dialog is open so that it saves the month it loaded. */
+  private readonly month = currentMonth();
   /** Amounts as loaded, by code. */
   private loadedAmounts = new Map<string, { invested: string; value: string }>();
   private loadedRows = '';
@@ -249,7 +230,7 @@ export class PortfolioEntryDialogComponent implements OnInit, AfterViewInit, OnD
   private focusPending = true;
 
   ngOnInit(): void {
-    this.loadMonth();
+    this.loadEntries();
   }
 
   ngAfterViewInit(): void {
@@ -276,29 +257,6 @@ export class PortfolioEntryDialogComponent implements OnInit, AfterViewInit, OnD
     return gainClass(value);
   }
 
-  changeMonth(event: Event): void {
-    const select = event.target as HTMLSelectElement;
-    if (!this.confirmDiscard()) {
-      select.value = String(this.monthNumber());
-      return;
-    }
-    this.monthNumber.set(Number(select.value));
-    this.loadMonth();
-  }
-
-  changeYear(event: Event): void {
-    const select = event.target as HTMLSelectElement;
-    if (!this.confirmDiscard()) {
-      select.value = String(this.year());
-      return;
-    }
-    this.year.set(Number(select.value));
-    if (this.year() === this.currentYear && this.monthNumber() > this.currentMonthNumber) {
-      this.monthNumber.set(this.currentMonthNumber);
-    }
-    this.loadMonth();
-  }
-
   updateRow(code: string, field: RowField, event: Event): void {
     const text = (event.target as HTMLInputElement).value;
     const update = <T extends AmountRow>(row: T): T => row.code === code ? { ...row, [field]: text } : row;
@@ -319,6 +277,33 @@ export class PortfolioEntryDialogComponent implements OnInit, AfterViewInit, OnD
     this.focusName(sub.code);
   }
 
+  /** A row that is not saved yet just goes away; a saved one is hidden and loses its amounts with the next save. */
+  deleteRow(item: AmountRow, parent: AssetRow | null): void {
+    if (!item.savedName) {
+      if (parent) {
+        this.removeSubAssetType(parent, item);
+      } else {
+        this.rows.update((rows) => rows.filter((row) => row.code !== item.code));
+      }
+    } else {
+      const subCount = parent ? 0 : this.rows().find((row) => row.code === item.code)?.subs.length ?? 0;
+      const subs = subCount ? ` and its ${subCount} sub asset ${subCount === 1 ? 'type' : 'types'}` : '';
+      if (!window.confirm(`Delete ${item.savedName}${subs}? Amounts are removed when you save.`)) {
+        return;
+      }
+      const clear = <T extends AmountRow>(row: T): T => ({ ...row, invested: '', value: '' });
+      const remove = <T extends AmountRow>(row: T): T =>
+        ({ ...clear(row), name: row.savedName, hidden: true, deleted: true });
+      this.rows.update((rows) => rows.map((row) => row.code === item.code
+        // Sub asset types that were never saved go with it.
+        ? { ...remove(row), subs: row.subs.filter((sub) => sub.savedName).map(clear) }
+        : { ...row, subs: row.subs.map((sub) => sub.code === item.code ? remove(sub) : sub) }));
+      this.notice.set(`Deleted ${item.savedName}. Save to apply.`);
+    }
+    // The button that had the focus is gone.
+    document.getElementById('entry-add-asset-type')?.focus({ preventScroll: true });
+  }
+
   /** Only for one that is not saved yet. The last amounts go back to the asset type. */
   removeSubAssetType(row: AssetRow, sub: AmountRow): void {
     const subs = row.subs.filter((other) => other.code !== sub.code);
@@ -332,13 +317,13 @@ export class PortfolioEntryDialogComponent implements OnInit, AfterViewInit, OnD
 
   /**
    * Takes effect with the next save. Amounts of a saved month stay. In a month that is not saved yet they are only
-   * suggestions, so hiding clears them and showing brings them back.
+   * suggestions, so hiding clears them and showing brings them back. Showing also undoes a delete that is not saved yet.
    */
   toggleHidden(item: AmountRow): void {
     const hidden = !item.hidden;
-    const toggle = <T extends AmountRow>(row: T): T => ({ ...row, hidden });
+    const toggle = <T extends AmountRow>(row: T): T => ({ ...row, hidden, deleted: false });
     const withAmounts = <T extends AmountRow>(row: T, isAffected: boolean): T => {
-      if (!isAffected || this.monthIsSaved()) {
+      if (!isAffected || (this.monthIsSaved() && !item.deleted)) {
         return row;
       }
       return { ...row, ...(hidden ? { invested: '', value: '' } : this.loadedAmounts.get(row.code)) };
@@ -350,7 +335,7 @@ export class PortfolioEntryDialogComponent implements OnInit, AfterViewInit, OnD
         ...changed,
         subs: row.subs.map((sub) => {
           const isSub = sub.code === item.code;
-          return withAmounts(isSub ? toggle(sub) : sub, isSub || (isRow && !sub.hidden));
+          return withAmounts(isSub ? toggle(sub) : sub, isSub || (isRow && !sub.deleted && (item.deleted || !sub.hidden)));
         }),
       };
     }));
@@ -416,17 +401,18 @@ export class PortfolioEntryDialogComponent implements OnInit, AfterViewInit, OnD
       this.error.set('Enter at least one asset.');
       return;
     }
-    if (!entries.length && this.monthIsSaved() && !window.confirm(`Remove all ${this.market()} entries for ${this.monthLabel()}?`)) {
+    if (!entries.length && this.monthIsSaved() && !window.confirm(
+      `Remove all current ${this.market()} entries? If earlier amounts are saved, the dashboard shows those instead.`)) {
       return;
     }
     this.saving.set(true);
     this.portfolioEntriesService.saveMonth(
-      environment.currentUserId, this.market(), this.month(), { entries, assetTypes, subAssetTypes },
+      environment.currentUserId, this.market(), this.month, { entries, assetTypes, subAssetTypes },
     ).subscribe({
-      next: () => this.saved.emit(this.month()),
+      next: () => this.saved.emit(),
       error: (error: unknown) => {
         this.saving.set(false);
-        this.error.set(apiErrorMessage(error, 'The month could not be saved.'));
+        this.error.set(apiErrorMessage(error, 'The amounts could not be saved.'));
       },
     });
   }
@@ -464,8 +450,11 @@ export class PortfolioEntryDialogComponent implements OnInit, AfterViewInit, OnD
         + `${siblings.some((other) => other.hidden && normalizedName(other) === name) ? ' (one is hidden)' : ''}.` : '';
   }
 
-  /** Hidden in the database and without amounts; one loaded with amounts stays listed while they are retyped. */
-  private isTuckedAway(row: AmountRow): boolean {
+  /** Deleted, or hidden in the database and without amounts; one loaded with amounts stays listed while they are retyped. */
+  isTuckedAway(row: AmountRow): boolean {
+    if (row.deleted) {
+      return true;
+    }
     const loaded = this.loadedAmounts.get(row.code);
     return row.hidden && row.savedHidden && isBlank(row) && !loaded?.invested && !loaded?.value;
   }
@@ -500,16 +489,16 @@ export class PortfolioEntryDialogComponent implements OnInit, AfterViewInit, OnD
     return !changed || window.confirm('Discard your unsaved changes?');
   }
 
-  loadMonth(): void {
+  loadEntries(): void {
     this.loadSubscription?.unsubscribe();
     this.loadFailed.set(false);
     this.ready.set(false);
     this.error.set('');
     this.showErrors.set(false);
-    this.notice.set(`Loading ${this.monthLabel()}…`);
+    this.notice.set('Loading…');
     this.rows.set([]);
     this.loadSubscription = this.portfolioEntriesService
-      .getMonth(environment.currentUserId, this.market(), this.month())
+      .getMonth(environment.currentUserId, this.market(), this.month)
       .subscribe({
         next: (month) => {
           if (!month.assetTypes || !month.subAssetTypes) {
@@ -521,18 +510,14 @@ export class PortfolioEntryDialogComponent implements OnInit, AfterViewInit, OnD
           }
           this.monthIsSaved.set(month.saved);
           this.setRows(month);
-          this.notice.set(month.saved
-            ? `Saved amounts for ${this.monthLabel()}.`
-            : month.sourceMonth
-              ? `${this.monthLabel()} is not saved yet. Filled in from ${formatMonth(month.sourceMonth)}; update and save.`
-              : `${this.monthLabel()} is not saved yet.`);
+          this.notice.set(!month.saved && month.sourceMonth ? 'Filled in with your last saved amounts; update and save.' : '');
           this.ready.set(true);
           this.focusFirstField();
         },
         error: (error: unknown) => {
           this.notice.set('');
           this.loadFailed.set(true);
-          this.error.set(apiErrorMessage(error, `${this.monthLabel()} could not be loaded.`));
+          this.error.set(apiErrorMessage(error, 'The amounts could not be loaded.'));
         },
       });
   }
@@ -547,6 +532,7 @@ export class PortfolioEntryDialogComponent implements OnInit, AfterViewInit, OnD
         savedName: name,
         hidden,
         savedHidden: hidden,
+        deleted: false,
         invested: entry ? String(entry.investedAmount) : '',
         value: entry ? String(entry.currentValue) : '',
       };
@@ -582,7 +568,7 @@ export class PortfolioEntryDialogComponent implements OnInit, AfterViewInit, OnD
 function newRow(prefix: 'CUSTOM' | 'SUB'): AmountRow {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   const digits = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
-  return { code: `${prefix}_${digits}`, name: '', savedName: '', hidden: false, savedHidden: false, invested: '', value: '' };
+  return { code: `${prefix}_${digits}`, name: '', savedName: '', hidden: false, savedHidden: false, deleted: false, invested: '', value: '' };
 }
 
 function addUp(rows: readonly AmountRow[]): { invested: number; value: number } {

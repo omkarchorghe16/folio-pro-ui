@@ -14,13 +14,18 @@ export interface StockHolding {
   exchange?: string | null;
   name: string;
   assetType: StockHoldingAssetType;
-  quantity: number;
+  /** Missing when the user does not know it. */
+  quantity?: number | null;
   averageCost: number;
+  /** Sector name picked by the user. */
+  sector?: string | null;
 }
 
+/** Replaces all of these values. */
 export interface StockHoldingPositionRequest {
-  quantity: number;
+  quantity: number | null;
   averageCost: number;
+  sector: string | null;
 }
 
 export interface StockHoldingRequest extends StockHoldingPositionRequest {

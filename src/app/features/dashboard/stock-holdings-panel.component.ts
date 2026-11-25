@@ -12,6 +12,7 @@ import { HoldingPricesService } from '../../core/services/holding-prices.service
 import { StockHoldingsService } from '../../core/services/stock-holdings.service';
 import { MISSING, formatMoney, formatQuantity, formatSignedMoney, formatSignedPercent, gainClass } from './dashboard-format';
 import { toHoldingRow, totalHoldings } from './holding-calculations';
+import { HoldingsState } from './sector-allocation-calculations';
 import { StockHoldingDialogComponent } from './stock-holding-dialog.component';
 
 const INDIA_REFRESH_MS = 60_000;
@@ -51,7 +52,7 @@ const INDIA_REFRESH_MS = 60_000;
           <table>
             <thead>
               <tr>
-                <th>Symbol</th><th>Name</th><th>Type</th><th>Country</th><th>Currency</th><th class="num">Quantity</th>
+                <th>Symbol</th><th>Name</th><th>Type</th><th>Sector</th><th>Country</th><th>Currency</th><th class="num">Quantity</th>
                 <th class="num">Avg cost</th><th class="num">Invested</th><th class="num">{{ market() === 'India' ? 'Live price' : 'Price' }}</th><th class="num">Day</th>
                 <th class="num">Current value</th><th class="num">Profit</th><th class="num">Profit %</th><th>Actions</th>
               </tr>
@@ -62,6 +63,7 @@ const INDIA_REFRESH_MS = 60_000;
                   <td><strong>{{ row.holding.symbol }}</strong></td>
                   <td class="name">{{ row.holding.name }}</td>
                   <td>{{ row.holding.assetType === 'ETF' ? 'ETF' : 'Stock' }}</td>
+                  <td>{{ row.holding.sector || missing }}</td>
                   <td>{{ row.holding.country }}</td>
                   <td>{{ row.holding.currency }}</td>
                   <td class="num">{{ quantity(row.holding.quantity) }}</td>
@@ -71,22 +73,22 @@ const INDIA_REFRESH_MS = 60_000;
                   <td class="num" [class]="gain(row.dayChangePercent)">{{ percent(row.dayChangePercent) }}</td>
                   <td class="num">{{ money(row.currentValue) }}</td>
                   <td class="num" [class]="gain(row.profit)">{{ signedMoney(row.profit) }}</td>
-                  <td class="num" [class]="gain(row.profit)">{{ percent(row.profitPercent) }}</td>
-                  <td class="row-actions">
+                  <td class="num" [class]="gain(row.profitPercent)">{{ percent(row.profitPercent) }}</td>
+                  <td><div class="row-actions">
                     <button type="button" class="edit-button" [attr.aria-label]="'Edit ' + row.holding.symbol"
                       (click)="openDialog(row.holding)">Edit</button>
                     <button type="button" class="secondary-button" [attr.aria-label]="'Remove ' + row.holding.symbol"
                       [disabled]="removingId() === row.holding.id" (click)="remove(row.holding)">Remove</button>
-                  </td>
+                  </div></td>
                 </tr>
               }
             </tbody>
             @if (totals(); as total) {
               <tfoot>
                 <tr>
-                  <td colspan="7"><strong>Total</strong>
-                    @if (total.pricedCount < total.count) {
-                      <span class="price-note"> · {{ total.count - total.pricedCount }} of {{ total.count }} have no price and are left out</span>
+                  <td colspan="8"><strong>Total</strong>
+                    @if (total.valuedCount < total.count) {
+                      <span class="price-note"> · {{ total.count - total.valuedCount }} of {{ total.count }} have no price or quantity and are left out</span>
                     }
                   </td>
                   <td class="num"><strong>{{ money(total.invested) }}</strong></td>
@@ -117,11 +119,12 @@ const INDIA_REFRESH_MS = 60_000;
     .holdings-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:16px; }
     .holdings-header h2 { margin:7px 0 0; font-size:1.2rem; }
     .holdings-actions,.row-actions { display:flex; gap:7px; }
+    .row-actions { flex-direction:column; }
     .price-note { margin:6px 0 0; color:var(--muted); font-size:.74rem; }
     .num { text-align:right; white-space:nowrap; }
-    .name { min-width:120px; }
+    .name { min-width:105px; }
     .as-of { display:block; margin-top:3px; color:var(--muted); font-size:.64rem; }
-    th,td { padding:11px 8px; }
+    th,td { padding:11px 6px; }
     @media(max-width:620px) { .holdings-panel { padding:15px; } .holdings-header { flex-direction:column; } }
   `],
 })
@@ -147,6 +150,10 @@ export class StockHoldingsPanelComponent implements OnInit {
   readonly rows = computed(() =>
     this.holdings().map((holding) => toHoldingRow(holding, this.pricesBySymbol().get(holding.symbol))));
   readonly totals = computed(() => totalHoldings(this.rows()));
+  /** For the sector allocation, which shows the same holdings. */
+  readonly state = computed<HoldingsState>(() => ({
+    rows: this.rows(), loading: this.loading(), failed: !!this.error() && !this.holdings().length,
+  }));
 
   private readonly stockHoldingsService = inject(StockHoldingsService);
   private readonly holdingPricesService = inject(HoldingPricesService);
@@ -175,7 +182,7 @@ export class StockHoldingsPanelComponent implements OnInit {
     return formatSignedPercent(value);
   }
 
-  quantity(value: number): string {
+  quantity(value: number | null | undefined): string {
     return formatQuantity(value);
   }
 

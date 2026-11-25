@@ -34,13 +34,19 @@ export function formatSignedPercent(value: OptionalNumber): string {
   return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
 }
 
-export function formatQuantity(value: number): string {
-  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 8 }).format(value);
+export function formatQuantity(value: OptionalNumber): string {
+  return value === null || value === undefined ? MISSING : new Intl.NumberFormat('en-US', { maximumFractionDigits: 8 }).format(value);
 }
 
 /** CSS class for a gain or loss; none for zero or missing. */
 export function gainClass(value: OptionalNumber): string {
   return !value ? '' : value > 0 ? 'text-success' : 'text-danger';
+}
+
+/** The current calendar month as yyyy-MM, in local time. */
+export function currentMonth(): string {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
 }
 
 /** "2026-11" to "Nov 2026". */

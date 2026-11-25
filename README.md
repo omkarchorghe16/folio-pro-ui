@@ -39,24 +39,42 @@ is a new 8082 path).
 
 US (USD) and India (INR) are separate everywhere and never converted or added together.
 
-- **Monthly portfolio** (summary cards, growth, allocation, All portfolios): every **Edit** opens the same popup for
-  that country. Pick a month (not in the future) and enter *Invested* (total cost still held) and *Current value* for
-  each asset type. **＋ Add asset type** adds your own type and every type name can be edited; new and renamed types
-  are kept per country and apply to every month. **＋ Sub asset type** adds any number of named entries (Home, Rental
-  flat, …) under an asset type, which then shows their total; in one month an asset type has either its own amounts or
+- **Portfolio** (summary cards, allocation, All portfolios, and growth at the end of the page): every **Edit** opens the same popup for
+  that country. Enter *Invested* (total cost still held) and *Current value* for
+  each asset type; there is no month or year to pick. Amounts are stored as the current calendar month, and the growth
+  chart and *Monthly return* use those monthly snapshots. Earlier months stay saved but cannot be edited here. **＋ Add asset type** adds your own type and every type name can be edited; new and renamed types
+  are kept per country. **＋ Sub asset type** adds any number of named entries (Home, Rental
+  flat, …) under an asset type, which then shows their total; an asset type has either its own amounts or
   sub asset type amounts. Types are never deleted: **Hide** keeps them in saved months and leaves them out of new ones,
-  and **Show hidden types** brings them back. A month with no data is filled in from the latest earlier month until saved. Saving replaces
-  that country's month and stores the types in one request (`PUT /api/v1/users/{userId}/portfolio-entries/{US|India}/months/{yyyy-MM}`); totals,
+  and **Show hidden types** brings them back. In a new calendar month the popup is filled in from the latest saved amounts. Saving replaces
+  that country's current month and stores the types in one request (`PUT /api/v1/users/{userId}/portfolio-entries/{US|India}/months/{yyyy-MM}`); totals,
   allocation, profit and monthly return come from `GET …/portfolio-entries/{US|India}/summary`.
+- **Asset allocation by country**: **View** opens a popup with every asset type and sub asset type of that country
+  (invested, current value, profit, share of the country's value) and **Edit** and a trash icon on each row.
+- **Delete** (trash icon in the View and Edit popups; immediate after a confirm in View, with Save in Edit) removes the
+  current amounts of an asset type, with its sub asset types, or of a sub asset type, and hides it. The API has no type
+  delete, so earlier months keep their amounts and **Show hidden types** brings the type back.
+- **All portfolios**: one table for the US and one for India. Asset type rows show the number of their sub asset types;
+  sub asset type rows below them are muted, with a ↳ and an empty *Asset type* cell. An asset type with sub asset types
+  is their total, so it has no **Edit** (here and in View); its sub asset types do.
 - *Monthly return* is the change in profit divided by the previous calendar month's value, so new money is not
   counted as a gain. It is `—` without the previous month. Realized profit from sales is not tracked, and an asset
   added with an existing gain counts that gain in the month it is added.
-- **US / India stocks & ETFs**: symbol, quantity and average cost are saved in 8081
+- **Sector allocation** (US and India side by side, above the stocks & ETFs tables and from the same rows): money and
+  percentage per sector, largest first; a sector opens to its stocks. *Invested* (quantity × average cost) or *Current
+  value*. Holdings without a quantity (or, for current value, a price) are named and not counted.
+- **US / India stocks & ETFs**: **＋ Add** searches tickers and company names in a dropdown (NSE or US symbol
+  directory, as on the watchlist pages). **Sector** has a separate list per country from table
+  `sectors` (`GET /api/sectors?market=US|INDIA`, 8082; fill it with `scripts/seed-sectors.sql` there). The sectors a stock
+  is in come from `GET /api/stocks?ticker=` (8082) for the US and the user's India watchlists (8081) for India. A default is filled in. ETF: the sector it was listed under
+  first in our own list, or `ETF` for a US ETF in none. US stock: the sector of its FMP profile. India stock: the sector
+  in our own list. A stock in several sectors (`TOP` not counted) has its industry instead (FMP; India: the saved Tapetide
+  profile), or the sector it was listed under first when there is no profile. The sector can be changed or left empty. Symbol, sector, quantity and average cost are saved in 8081
   (`/api/v1/users/{userId}/stock-holdings/{US|India}`); the browser adds prices from `POST /api/fmp/profiles` (US) and
   `GET /api/india/upstox/quotes` (India) and calculates value and profit (`holding-calculations.ts`). US prices
   refresh at most once a day and use the FMP quota shared with the US watchlist. India prices are live and reload
-  every 60 seconds while the tab is visible and NSE is in normal hours. Holdings without a price show `—` and are
-  left out of the totals. These widgets are not included in the monthly net worth.
+  every 60 seconds while the tab is visible and NSE is in normal hours. Quantity is optional. Holdings without a
+  price or quantity show `—` and are left out of the totals; profit % needs only the price. These widgets are a detailed breakdown and are not included in net worth.
 
 ### Watchlist pages
 
@@ -136,7 +154,7 @@ To start PostgreSQL automatically at login, turn on **postgres** once under **Sy
 
 `npm start` runs `ng serve --proxy-config proxy.conf.json`. The proxy forwards `/api/fmp`, `/api/us`, `/api/digest` and
 `/api/india` to port 8082; watchlist calls go straight to `environment.apiBaseUrl`
-(`http://localhost:8081`).
+(`http://localhost:8081`) and sector calls to `environment.marketFeedBaseUrl` (`http://localhost:8082`).
 
 **Restart after configuration changes.** `ng serve` reads `proxy.conf.json` only at startup, Flyway
 migrations in folio-portfolio-api run only at startup, and CORS changes in either backend need a
@@ -173,6 +191,7 @@ src/
       us-symbols.service.ts                    US ticker/name search via /api/us (8082)
       portfolio-entries.service.ts             monthly portfolio entries and summary (8081)
       stock-holdings.service.ts                held stocks and ETFs (8081)
+      sectors.service.ts                       sector lists (8082) and the sectors of a stock
       holding-prices.service.ts                prices of holdings (FMP, Upstox; 8082)
       wealth.service.ts                        mock data for the other screens
     features/             one standalone component per screen

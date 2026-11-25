@@ -13,7 +13,8 @@ dev-standards) also apply; where this file is more specific, it wins. Edit this 
   column preferences. URLs
   come from `environment.apiBaseUrl`.
 - `folio-market-feed-svc` (8082): FMP (US) and Tapetide/Upstox (India) market data, US symbol search and digests under the relative
-  `/api/fmp`, `/api/india`, `/api/us` and `/api/digest` paths served by the dev proxy (`proxy.conf.json`).
+  `/api/fmp`, `/api/india`, `/api/us` and `/api/digest` paths served by the dev proxy (`proxy.conf.json`). `SectorsService` calls
+  `/api/sectors` and `/api/stocks` at `environment.marketFeedBaseUrl`.
 - There is no authentication; the user ID is `environment.currentUserId` (1).
 - India page: fundamentals from Tapetide (`/api/india/tapetide/profile`), prices from Upstox
   (`/api/india/upstox/quotes`, `UpstoxQuotesService`) or Tapetide, whichever is newer
