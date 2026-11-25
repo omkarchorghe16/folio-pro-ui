@@ -110,7 +110,29 @@ The dashboard and watchlist pages need all three services:
 | Portfolio and watchlists API | `../folio-portfolio-api` | 8081 | IntelliJ or `mvn spring-boot:run` |
 | Market data (FMP, Tapetide) | `../folio-market-feed-svc` | 8082 | IntelliJ or `mvn spring-boot:run` |
 
-Both backends use the shared PostgreSQL database `folio_pro`. Open http://localhost:4200.
+Both backends use the shared PostgreSQL database `folio_pro`. Start the database first (next section), then the
+backends, then the UI. Open http://localhost:4200.
+
+### Start the database
+
+Use this after starting the laptop, or when pgAdmin or a backend reports `Connection refused` on port 5432
+(macOS with Homebrew `postgresql@16`). Run it either way:
+
+- **IntelliJ:** choose **Start Local Database** in the run configuration list and click ▶.
+- **Terminal** (IntelliJ may also show a ▶ next to this command in the README editor):
+
+```bash
+npm run db:start
+```
+
+The script (`scripts/start-local-db.sh`) starts PostgreSQL if it is not running, checks that `folio_pro` can log in,
+and opens pgAdmin. If the server does not start, it prints the last lines of the PostgreSQL log. It is safe to run
+when the database is already running. `npm run db:start -- --no-open` leaves pgAdmin closed.
+
+pgAdmin connection: host `localhost`, port `5432`, database `folio_pro`, user `folio_pro`.
+
+To start PostgreSQL automatically at login, turn on **postgres** once under **System Settings → General → Login Items
+& Extensions → Allow in the Background**. While it is off, macOS does not start the database after a restart.
 
 `npm start` runs `ng serve --proxy-config proxy.conf.json`. The proxy forwards `/api/fmp`, `/api/us`, `/api/digest` and
 `/api/india` to port 8082; watchlist calls go straight to `environment.apiBaseUrl`
@@ -156,6 +178,8 @@ src/
     features/             one standalone component per screen
     shared/components/    ShellComponent (top nav + rail), auth shell, metric card
 proxy.conf.json           dev-server proxy for /api/fmp, /api/us, /api/digest and /api/india
+scripts/start-local-db.sh starts PostgreSQL, checks the login and opens pgAdmin
+.run/                     shared IntelliJ run configurations
 docs/architecture.md      architecture plan and what is built so far
 WealthManagement.drawio   system diagram
 ```
